@@ -64,6 +64,98 @@ def gerar_pdf_simples(titulo, colunas, dados):
     buffer.close()
     return pdf_out
 
+def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, ferias_cnt, afastados_cnt, ocorrencias_cnt):
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
+    elements = []
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontSize=15,
+        leading=18,
+        textColor=colors.HexColor("#1E3A8A"),
+        spaceAfter=5
+    )
+    
+    sub_style = ParagraphStyle(
+        'SubStyle',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#475569"),
+        spaceAfter=10
+    )
+
+    hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    elements.append(Paragraph("<b>RELATÓRIO GERAL DE DASHBOARD & INDICADORES DA EQUIPE</b>", title_style))
+    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora", sub_style))
+    elements.append(Spacer(1, 5))
+
+    # Tabela Resumo dos Indicadores
+    indicadores_data = [
+        ["Total Quadro", "Ativos", "Em Férias", "Afastados/INSS", "Ocorrências (Mês)"],
+        [str(total_q), str(ativos), str(ferias_cnt), str(afastados_cnt), str(ocorrencias_cnt)]
+    ]
+    t_ind = Table(indicadores_data, colWidths=[130]*5)
+    t_ind.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F1F5F9")),
+        ('TEXTCOLOR', (0,1), (-1,1), colors.HexColor("#0F172A")),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    elements.append(t_ind)
+    elements.append(Spacer(1, 15))
+
+    # Tabela Detalhada do Quadro
+    elements.append(Paragraph("<b>Quadro Atual de Colaboradores</b>", styles['Heading2']))
+    elements.append(Spacer(1, 5))
+    
+    cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
+    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
+    
+    for _, row in df_filtrado[cols_pres].iterrows():
+        r_data = []
+        for val in row:
+            v_str = str(val) if pd.notnull(val) else ""
+            r_data.append(Paragraph(v_str, styles['Normal']))
+        table_data.append(r_data)
+
+    t_quadro = Table(table_data, repeatRows=1)
+    t_quadro.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#E2E8F0")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#1E293B")),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    elements.append(t_quadro)
+
+    doc.build(elements)
+    pdf_out = buffer.getvalue()
+    buffer.close()
+    return pdf_out
+
+def converter_df_para_excel(df_exp):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
+    return output.getvalue()
+
 # --- SISTEMA DE AUTENTICAÇÃO POR SENHA SEGURA ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
@@ -152,19 +244,33 @@ if verificar_senha():
         cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
         df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
 
-    def converter_df_para_excel(df_exp):
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
-        return output.getvalue()
-
-    @st.dialog("📋 Lista Detalhada do Quadro")
+    @st.dialog("📋 Lista Detalhada e Exportação")
     def exibir_modal_detalhes(titulo, df_detalhes):
         st.subheader(titulo)
         if df_detalhes.empty:
             st.info("Nenhum colaborador nesta situação.")
         else:
             st.dataframe(df_detalhes, use_container_width=True)
+            st.markdown("---")
+            st.markdown("##### 📥 Exportar Esta Lista")
+            c_d1, c_d2 = st.columns(2)
+            with c_d1:
+                st.download_button(
+                    label="📥 Baixar em Excel (.xlsx)",
+                    data=converter_df_para_excel(df_detalhes),
+                    file_name=f"{titulo.lower().replace(' ', '_')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"excel_modal_{titulo}"
+                )
+            with c_d2:
+                pdf_b = gerar_pdf_simples(titulo, list(df_detalhes.columns), df_detalhes.values.tolist())
+                st.download_button(
+                    label="🖨️ Baixar PDF para Impressão",
+                    data=pdf_b,
+                    file_name=f"{titulo.lower().replace(' ', '_')}.pdf",
+                    mime="application/pdf",
+                    key=f"pdf_modal_{titulo}"
+                )
 
     df = carregar_dados()
     df_faltas = carregar_faltas()
@@ -221,6 +327,41 @@ if verificar_senha():
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral")
             
+            # --- BOTÕES DE EXPORTAÇÃO DO DASHBOARD COMPLETO ---
+            df_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo']
+            df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
+            df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
+            faltas_mes = df_faltas_filtrado[df_faltas_filtrado['dt_falta'].apply(lambda d: d.month == hoje.month and d.year == hoje.year if pd.notnull(d) else False)] if not df_faltas_filtrado.empty else pd.DataFrame()
+
+            cd1, cd2 = st.columns(2)
+            with cd1:
+                st.download_button(
+                    label="📥 Exportar Dados do Dashboard (.xlsx)",
+                    data=converter_df_para_excel(df_filtrado),
+                    file_name=f"dashboard_dados_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_dash_excel"
+                )
+            with cd2:
+                pdf_dash = gerar_pdf_dashboard_completo(
+                    setor_selecionado, 
+                    df_filtrado, 
+                    len(df_filtrado), 
+                    len(df_ativos), 
+                    len(df_ferias_st), 
+                    len(df_afastados), 
+                    len(faltas_mes)
+                )
+                st.download_button(
+                    label="🖨️ Imprimir Relatório Geral do Dashboard (PDF)",
+                    data=pdf_dash,
+                    file_name=f"dashboard_relatorio_{setor_selecionado.lower().replace(' ', '_')}.pdf",
+                    mime="application/pdf",
+                    key="btn_dash_pdf"
+                )
+
+            st.markdown("---")
+
             vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
             if not vagas_abertas.empty:
                 st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem {len(vagas_abertas)} vaga(s) aberta(s) por desligamento/término de contrato!")
@@ -236,25 +377,21 @@ if verificar_senha():
                 cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
                 exibir_modal_detalhes("Quadro Geral de Colaboradores", df_filtrado[cols_m])
                 
-            df_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo']
             c2.metric("Ativos", len(df_ativos))
             if c2.button("🔍 Ver Ativos", key="btn_ativos"):
                 cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos.columns]
                 exibir_modal_detalhes("Colaboradores Ativos no Quadro", df_ativos[cols_m])
 
-            df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             c3.metric("Em Férias", len(df_ferias_st))
             if c3.button("🔍 Ver Férias", key="btn_ferias"):
                 cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias'] if c in df_ferias_st.columns]
                 exibir_modal_detalhes("Colaboradores em Gozo de Férias", df_ferias_st[cols_m])
 
-            df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             c4.metric("Atest./Afast./INSS", len(df_afastados))
             if c4.button("🔍 Ver Afastados", key="btn_afastados"):
                 cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Contato'] if c in df_afastados.columns]
                 exibir_modal_detalhes("Colaboradores Afastados / Atestado / INSS", df_afastados[cols_m])
 
-            faltas_mes = df_faltas_filtrado[df_faltas_filtrado['dt_falta'].apply(lambda d: d.month == hoje.month and d.year == hoje.year if pd.notnull(d) else False)] if not df_faltas_filtrado.empty else pd.DataFrame()
             c5.metric("Ocorrências (Mês)", len(faltas_mes))
             if c5.button("🔍 Ver Faltas/Atest", key="btn_faltas_m"):
                 cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in faltas_mes.columns]
@@ -298,13 +435,13 @@ if verificar_senha():
                         st.warning(f"⏳ **45 DIAS:** {r['Funcionário']} ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')})\nVence em {r['exp_45'].strftime('%d/%m/%Y')} (Faltam {r['dias_para_45']} dias)")
                         b1, b2 = st.columns(2)
                         if b1.button("✅ Efetivar (45d)", key=f"ef_45_{idx}"):
-                            df.at[idx, 'Decisao_Experiencia'] = 'Efetivado'
+                            df.loc[idx, 'Decisao_Experiencia'] = 'Efetivado'
                             salvar_dados(df)
                             st.success(f"{r['Funcionário']} efetivado com sucesso!")
                             st.rerun()
                         if b2.button("🚫 Desligar (Término/Quebra)", key=f"qb_45_{idx}"):
-                            df.at[idx, 'Status'] = 'Desligado (Término de Experiência)'
-                            df.at[idx, 'Decisao_Experiencia'] = 'Desligado'
+                            df.loc[idx, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.loc[idx, 'Decisao_Experiencia'] = 'Desligado'
                             salvar_dados(df)
                             st.error("Contrato encerrado! Vaga liberada para reposição no painel de alertas.")
                             st.rerun()
@@ -313,19 +450,19 @@ if verificar_senha():
                         st.error(f"🚨 **90 DIAS (FINAL):** {r['Funcionário']} ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')})\nVence em {r['exp_90'].strftime('%d/%m/%Y')} (Faltam {r['dias_para_90']} dias)")
                         b1, b2 = st.columns(2)
                         if b1.button("✅ Efetivar Definitivo", key=f"ef_90_{idx}"):
-                            df.at[idx, 'Decisao_Experiencia'] = 'Efetivado'
+                            df.loc[idx, 'Decisao_Experiencia'] = 'Efetivado'
                             salvar_dados(df)
                             st.success(f"{r['Funcionário']} efetivado definitivamente!")
                             st.rerun()
                         if b2.button("🚫 Desligar (Término Contrato)", key=f"qb_90_{idx}"):
-                            df.at[idx, 'Status'] = 'Desligado (Término de Experiência)'
-                            df.at[idx, 'Decisao_Experiencia'] = 'Desligado'
+                            df.loc[idx, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.loc[idx, 'Decisao_Experiencia'] = 'Desligado'
                             salvar_dados(df)
                             st.error("Contrato encerrado! Vaga liberada para reposição no painel de alertas.")
                             st.rerun()
 
             with col_ferias_p:
-                st.subheader("🏖️ Alertas de Férias Pendentes")
+                st.subheader("🏖️ Alertas de Férias Pendentes & Dar Baixa")
                 alertas_ferias = []
                 for idx, r in df_filtrado[df_filtrado['Status'] == 'Ativo'].iterrows():
                     adm = r['dt_adm']
@@ -346,15 +483,18 @@ if verificar_senha():
                     st.info("Nenhum colaborador com risco imediato de férias vencidas.")
                 else:
                     for idx, nome, setor, lim, dias in alertas_ferias:
-                        c_info, c_btn = st.columns([3, 1])
-                        with c_info:
-                            st.error(f"⚠️ **{nome}** ({setor})\nLimite: {lim.strftime('%d/%m/%Y')} (Faltam {dias} dias)")
+                        st.error(f"⚠️ **{nome}** ({setor}) | Limite: {lim.strftime('%d/%m/%Y')} (Faltam {dias} dias)")
+                        c_dt, c_btn = st.columns([2, 1])
+                        with c_dt:
+                            dt_real = st.date_input("Data Real do Início das Férias:", value=hoje, key=f"dt_baixa_{idx}", format="DD/MM/YYYY")
                         with c_btn:
-                            if st.button("✅ Dar Baixa", key=f"baixa_{idx}"):
-                                df.at[idx, 'Ultimas_Ferias'] = hoje.strftime('%d/%m/%Y')
+                            st.write("")
+                            if st.button("✅ Confirmar Baixa", key=f"baixa_{idx}"):
+                                df.loc[idx, 'Ultimas_Ferias'] = dt_real.strftime('%d/%m/%Y')
                                 salvar_dados(df)
-                                st.success(f"Férias baixadas para {nome}!")
+                                st.success(f"Férias registradas para {nome} em {dt_real.strftime('%d/%m/%Y')}!")
                                 st.rerun()
+                        st.divider()
 
         elif menu == "Controle de Experiência (45/90 dias)":
             st.subheader(f"📋 Colaboradores em Período de Experiência e Ações - {setor_selecionado}")
@@ -369,26 +509,6 @@ if verificar_senha():
                 df_exibir['Faltam (90d)'] = df_apenas_exp['dias_para_90'].apply(lambda d: f"{d} dias")
                 st.dataframe(df_exibir, use_container_width=True)
                 
-                st.markdown("---")
-                st.subheader("⚙️ Ações Diretas no Período de Experiência")
-                for idx, r in df_apenas_exp.iterrows():
-                    col_info, col_ef, col_desl = st.columns([2, 1, 1])
-                    with col_info:
-                        st.write(f"👤 **{r['Funcionário']}** ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')}) | Adm: {r.get('Admissão', 'N/A')}")
-                    with col_ef:
-                        if st.button("✅ Efetivar", key=f"btn_exp_ef_{idx}"):
-                            df.at[idx, 'Decisao_Experiencia'] = 'Efetivado'
-                            salvar_dados(df)
-                            st.success(f"{r['Funcionário']} efetivado!")
-                            st.rerun()
-                    with col_desl:
-                        if st.button("🚫 Desligar (Liberar Vaga)", key=f"btn_exp_desl_{idx}"):
-                            df.at[idx, 'Status'] = 'Desligado (Término de Experiência)'
-                            df.at[idx, 'Decisao_Experiencia'] = 'Desligado'
-                            salvar_dados(df)
-                            st.error(f"Colaborador desligado. Vaga liberada no Painel de Alertas!")
-                            st.rerun()
-
                 c_down1, c_down2 = st.columns(2)
                 with c_down1:
                     st.download_button(
@@ -409,6 +529,26 @@ if verificar_senha():
                         file_name=f"experiencia_{setor_selecionado.lower().replace(' ', '_')}.pdf",
                         mime="application/pdf"
                     )
+
+                st.markdown("---")
+                st.subheader("⚙️ Ações Diretas no Período de Experiência")
+                for idx, r in df_apenas_exp.iterrows():
+                    col_info, col_ef, col_desl = st.columns([2, 1, 1])
+                    with col_info:
+                        st.write(f"👤 **{r['Funcionário']}** ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')}) | Adm: {r.get('Admissão', 'N/A')}")
+                    with col_ef:
+                        if st.button("✅ Efetivar", key=f"btn_exp_ef_{idx}"):
+                            df.loc[idx, 'Decisao_Experiencia'] = 'Efetivado'
+                            salvar_dados(df)
+                            st.success(f"{r['Funcionário']} efetivado!")
+                            st.rerun()
+                    with col_desl:
+                        if st.button("🚫 Desligar (Liberar Vaga)", key=f"btn_exp_desl_{idx}"):
+                            df.loc[idx, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.loc[idx, 'Decisao_Experiencia'] = 'Desligado'
+                            salvar_dados(df)
+                            st.error(f"Colaborador desligado. Vaga liberada no Painel de Alertas!")
+                            st.rerun()
 
         elif menu == "Escala Inteligente de Férias":
             ferias.renderizar_modulo_ferias(df)
@@ -474,6 +614,10 @@ if verificar_senha():
         elif menu == "Faltas & Folgas":
             st.subheader(f"📌 Lançamento & Gestão de Faltas e Folgas - {setor_selecionado}")
             
+            if "msg_sucesso_falta" in st.session_state:
+                st.success(st.session_state["msg_sucesso_falta"])
+                del st.session_state["msg_sucesso_falta"]
+
             tab_cad, tab_hist = st.tabs(["➕ Lançar Ocorrência / Folga", "📋 Histórico de Lançamentos"])
             
             with tab_cad:
@@ -483,11 +627,11 @@ if verificar_senha():
                 else:
                     lista_nomes = sorted(colabs_ativos['Funcionário'].unique())
                     
-                    with st.form("form_falta"):
+                    with st.form("form_falta", clear_on_submit=True):
                         st.markdown("##### 👤 Colaborador & Tipo de Ocorrência")
                         
                         nome_colab = st.selectbox(
-                            "Digite as primeiras letras para buscar o colaborador:", 
+                            "Selecione ou digite o nome do colaborador:", 
                             lista_nomes
                         )
                         
@@ -524,7 +668,7 @@ if verificar_senha():
                             }
                             df_faltas = pd.concat([df_faltas, pd.DataFrame([nova_ocorrencia])], ignore_index=True)
                             salvar_faltas(df_faltas)
-                            st.success(f"Ocorrência de **{tipo_falta}** ({dias_falta} dia(s)) lançada para **{nome_colab}** com sucesso!")
+                            st.session_state["msg_sucesso_falta"] = f"✅ Ocorrência de {tipo_falta} ({dias_falta} dia(s)) lançada para {nome_colab} com sucesso!"
                             st.rerun()
 
             with tab_hist:
@@ -615,7 +759,7 @@ if verificar_senha():
             ]
 
             with tab_cad_novo:
-                with st.form("form_cad"):
+                with st.form("form_cad", clear_on_submit=True):
                     c1, c2, c3 = st.columns(3)
                     vaga = c1.text_input("Vaga (Digite o Número)", value="1")
                     matricula = c2.text_input("Matrícula (Digite o Número/Código)", value="")
