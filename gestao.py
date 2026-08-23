@@ -10,31 +10,33 @@ st.set_page_config(page_title="Gestão de Equipe Tropical", page_icon="👥", la
 
 # --- SISTEMA DE AUTENTICAÇÃO POR SENHA SEGURA ---
 def verificar_senha():
-    if "autenticado" not in st.session_state:
-        st.session_state["autenticado"] = False
+  if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
 
-    if not st.session_state["autenticado"]:
-        st.title("🔒 Acesso Restrito - Gestão de Equipe Tropical")
-        st.info("Por razões de segurança, informe a senha de acesso para continuar.")
-        
-        senha_digitada = st.text_input("Digite a Senha de Acesso:", type="password")
-        btn_entrar = st.button("🔑 Entrar no Sistema")
-        
-        # Tenta buscar dos secrets (nuvem), se não existir usa a senha padrão local '1234'
-        try:
-            senha_correta = st.secrets["SENHA_ACESSO"]
-        except Exception:
-            senha_correta = "1234"
-        
-        if btn_entrar:
-            if senha_digitada == senha_correta:
-                st.session_state["autenticado"] = True
-                st.success("Acesso liberado!")
-                st.rerun()
-            else:
-                st.error("❌ Senha incorreta. Tente novamente.")
-        return False
-    return True
+  if not st.session_state["autenticado"]:
+    st.title("🔒 Acesso Restrito - Gestão de Equipe Tropical")
+    st.info("Por razões de segurança, informe a senha de acesso para continuar.")
+
+    senha_digitada = st.text_input("Digite a Senha de Acesso:", type="password")
+    btn_entrar = st.button("🔑 Entrar no Sistema")
+
+    # Senha fixa para o sistema
+    senha_correta = "030711"
+
+    if btn_entrar:
+      if senha_digitada == senha_correta:
+        st.session_state["autenticado"] = True
+        st.success("Acesso liberado!")
+        st.rerun()
+      else:
+        st.error("❌ Senha incorreta. Tente novamente.")
+    return False
+  return True
+
+
+if verificar_senha():
+  ARQUIVO_DADOS = "equipe.xlsx"
+  # ... resto do código
 
 if verificar_senha():
     ARQUIVO_DADOS = "equipe.xlsx"
