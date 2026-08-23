@@ -98,7 +98,6 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora", sub_style))
     elements.append(Spacer(1, 5))
 
-    # Tabela Resumo dos Indicadores
     indicadores_data = [
         ["Total Quadro", "Ativos", "Em Férias", "Afastados/INSS", "Ocorrências (Mês)"],
         [str(total_q), str(ativos), str(ferias_cnt), str(afastados_cnt), str(ocorrencias_cnt)]
@@ -118,7 +117,6 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements.append(t_ind)
     elements.append(Spacer(1, 15))
 
-    # Tabela Detalhada do Quadro
     elements.append(Paragraph("<b>Quadro Atual de Colaboradores</b>", styles['Heading2']))
     elements.append(Spacer(1, 5))
     
@@ -212,6 +210,7 @@ if verificar_senha():
             if 'Ultimas_Ferias' not in df.columns:
                 df['Ultimas_Ferias'] = None
             else:
+                df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str)
                 df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
                 
             if 'Decisao_Experiencia' not in df.columns:
@@ -327,7 +326,6 @@ if verificar_senha():
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral")
             
-            # --- BOTÕES DE EXPORTAÇÃO DO DASHBOARD COMPLETO ---
             df_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo']
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
@@ -431,32 +429,36 @@ if verificar_senha():
                 if alerta_45.empty and alerta_90.empty:
                     st.info("Nenhum contrato de experiência vencendo nos próximos 10 dias.")
                 else:
-                    for idx, r in alerta_45.iterrows():
+                    for idx_exp, r in alerta_45.iterrows():
                         st.warning(f"⏳ **45 DIAS:** {r['Funcionário']} ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')})\nVence em {r['exp_45'].strftime('%d/%m/%Y')} (Faltam {r['dias_para_45']} dias)")
                         b1, b2 = st.columns(2)
-                        if b1.button("✅ Efetivar (45d)", key=f"ef_45_{idx}"):
-                            df.loc[idx, 'Decisao_Experiencia'] = 'Efetivado'
+                        if b1.button("✅ Efetivar (45d)", key=f"ef_45_{idx_exp}"):
+                            mask_e = (df['Funcionário'] == r['Funcionário'])
+                            df.loc[mask_e, 'Decisao_Experiencia'] = 'Efetivado'
                             salvar_dados(df)
                             st.success(f"{r['Funcionário']} efetivado com sucesso!")
                             st.rerun()
-                        if b2.button("🚫 Desligar (Término/Quebra)", key=f"qb_45_{idx}"):
-                            df.loc[idx, 'Status'] = 'Desligado (Término de Experiência)'
-                            df.loc[idx, 'Decisao_Experiencia'] = 'Desligado'
+                        if b2.button("🚫 Desligar (Término/Quebra)", key=f"qb_45_{idx_exp}"):
+                            mask_e = (df['Funcionário'] == r['Funcionário'])
+                            df.loc[mask_e, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.loc[mask_e, 'Decisao_Experiencia'] = 'Desligado'
                             salvar_dados(df)
                             st.error("Contrato encerrado! Vaga liberada para reposição no painel de alertas.")
                             st.rerun()
 
-                    for idx, r in alerta_90.iterrows():
+                    for idx_exp, r in alerta_90.iterrows():
                         st.error(f"🚨 **90 DIAS (FINAL):** {r['Funcionário']} ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')})\nVence em {r['exp_90'].strftime('%d/%m/%Y')} (Faltam {r['dias_para_90']} dias)")
                         b1, b2 = st.columns(2)
-                        if b1.button("✅ Efetivar Definitivo", key=f"ef_90_{idx}"):
-                            df.loc[idx, 'Decisao_Experiencia'] = 'Efetivado'
+                        if b1.button("✅ Efetivar Definitivo", key=f"ef_90_{idx_exp}"):
+                            mask_e = (df['Funcionário'] == r['Funcionário'])
+                            df.loc[mask_e, 'Decisao_Experiencia'] = 'Efetivado'
                             salvar_dados(df)
                             st.success(f"{r['Funcionário']} efetivado definitivamente!")
                             st.rerun()
-                        if b2.button("🚫 Desligar (Término Contrato)", key=f"qb_90_{idx}"):
-                            df.loc[idx, 'Status'] = 'Desligado (Término de Experiência)'
-                            df.loc[idx, 'Decisao_Experiencia'] = 'Desligado'
+                        if b2.button("🚫 Desligar (Término Contrato)", key=f"qb_90_{idx_exp}"):
+                            mask_e = (df['Funcionário'] == r['Funcionário'])
+                            df.loc[mask_e, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.loc[mask_e, 'Decisao_Experiencia'] = 'Desligado'
                             salvar_dados(df)
                             st.error("Contrato encerrado! Vaga liberada para reposição no painel de alertas.")
                             st.rerun()
@@ -464,7 +466,7 @@ if verificar_senha():
             with col_ferias_p:
                 st.subheader("🏖️ Alertas de Férias Pendentes & Dar Baixa")
                 alertas_ferias = []
-                for idx, r in df_filtrado[df_filtrado['Status'] == 'Ativo'].iterrows():
+                for idx_f, r in df_filtrado[df_filtrado['Status'] == 'Ativo'].iterrows():
                     adm = r['dt_adm']
                     ult_ferias = r.get('dt_ult_ferias') if 'dt_ult_ferias' in r else None
                     data_base = ult_ferias if pd.notnull(ult_ferias) else adm
@@ -477,23 +479,31 @@ if verificar_senha():
                             limite_concessivo = fim_aquisitivo + timedelta(days=365)
                             dias_restantes = (limite_concessivo - hoje).days
                             if dias_restantes <= 60:
-                                alertas_ferias.append((idx, r['Funcionário'], r.get('Setor', 'N/A'), limite_concessivo, dias_restantes))
+                                alertas_ferias.append((idx_f, r['Funcionário'], r.get('Matricula', ''), r.get('Setor', 'N/A'), limite_concessivo, dias_restantes))
                 
                 if not alertas_ferias:
                     st.info("Nenhum colaborador com risco imediato de férias vencidas.")
                 else:
-                    for idx, nome, setor, lim, dias in alertas_ferias:
-                        st.error(f"⚠️ **{nome}** ({setor}) | Limite: {lim.strftime('%d/%m/%Y')} (Faltam {dias} dias)")
+                    for i_f, nome_colab, matr_colab, setor_colab, lim, dias in alertas_ferias:
+                        st.error(f"⚠️ **{nome_colab}** ({setor_colab}) | Limite: {lim.strftime('%d/%m/%Y')} (Faltam {dias} dias)")
                         c_dt, c_btn = st.columns([2, 1])
                         with c_dt:
-                            dt_real = st.date_input("Data Real do Início das Férias:", value=hoje, key=f"dt_baixa_{idx}", format="DD/MM/YYYY")
+                            dt_real = st.date_input("Data Real do Início das Férias:", value=hoje, key=f"dt_baixa_{i_f}_{nome_colab[:5]}", format="DD/MM/YYYY")
                         with c_btn:
                             st.write("")
-                            if st.button("✅ Confirmar Baixa", key=f"baixa_{idx}"):
-                                df.loc[idx, 'Ultimas_Ferias'] = dt_real.strftime('%d/%m/%Y')
-                                salvar_dados(df)
-                                st.success(f"Férias registradas para {nome} em {dt_real.strftime('%d/%m/%Y')}!")
-                                st.rerun()
+                            if st.button("✅ Confirmar Baixa", key=f"baixa_{i_f}_{nome_colab[:5]}"):
+                                try:
+                                    # Busca segura pelo nome do colaborador no DataFrame principal
+                                    mask = (df['Funcionário'] == nome_colab)
+                                    if matr_colab:
+                                        mask = mask & (df['Matricula'].astype(str) == str(matr_colab))
+                                    
+                                    df.loc[mask, 'Ultimas_Ferias'] = dt_real.strftime('%d/%m/%Y')
+                                    salvar_dados(df)
+                                    st.success(f"Férias baixadas para {nome_colab} em {dt_real.strftime('%d/%m/%Y')}!")
+                                    st.rerun()
+                                except Exception as err:
+                                    st.error(f"Erro ao registrar baixa: {err}")
                         st.divider()
 
         elif menu == "Controle de Experiência (45/90 dias)":
@@ -532,20 +542,22 @@ if verificar_senha():
 
                 st.markdown("---")
                 st.subheader("⚙️ Ações Diretas no Período de Experiência")
-                for idx, r in df_apenas_exp.iterrows():
+                for idx_e, r in df_apenas_exp.iterrows():
                     col_info, col_ef, col_desl = st.columns([2, 1, 1])
                     with col_info:
                         st.write(f"👤 **{r['Funcionário']}** ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')}) | Adm: {r.get('Admissão', 'N/A')}")
                     with col_ef:
-                        if st.button("✅ Efetivar", key=f"btn_exp_ef_{idx}"):
-                            df.loc[idx, 'Decisao_Experiencia'] = 'Efetivado'
+                        if st.button("✅ Efetivar", key=f"btn_exp_ef_aba_{idx_e}"):
+                            mask = (df['Funcionário'] == r['Funcionário'])
+                            df.loc[mask, 'Decisao_Experiencia'] = 'Efetivado'
                             salvar_dados(df)
                             st.success(f"{r['Funcionário']} efetivado!")
                             st.rerun()
                     with col_desl:
-                        if st.button("🚫 Desligar (Liberar Vaga)", key=f"btn_exp_desl_{idx}"):
-                            df.loc[idx, 'Status'] = 'Desligado (Término de Experiência)'
-                            df.loc[idx, 'Decisao_Experiencia'] = 'Desligado'
+                        if st.button("🚫 Desligar (Liberar Vaga)", key=f"btn_exp_desl_aba_{idx_e}"):
+                            mask = (df['Funcionário'] == r['Funcionário'])
+                            df.loc[mask, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.loc[mask, 'Decisao_Experiencia'] = 'Desligado'
                             salvar_dados(df)
                             st.error(f"Colaborador desligado. Vaga liberada no Painel de Alertas!")
                             st.rerun()
@@ -556,7 +568,7 @@ if verificar_senha():
         elif menu == "Gestão de Férias (Histórico)":
             st.subheader(f"🏖️ Controle de Períodos Aquisitivos e Concessivos - {setor_selecionado}")
             lista_ferias = []
-            for idx, r in df_filtrado[df_filtrado['Status'].isin(['Ativo', 'Férias'])].iterrows():
+            for idx_h, r in df_filtrado[df_filtrado['Status'].isin(['Ativo', 'Férias'])].iterrows():
                 adm = r['dt_adm']
                 ult_ferias = pd.to_datetime(r.get('Ultimas_Ferias'), dayfirst=True, errors='coerce').date() if pd.notnull(r.get('Ultimas_Ferias')) else None
                 data_base = ult_ferias if ult_ferias else adm
@@ -582,7 +594,7 @@ if verificar_senha():
                         "Setor": r.get('Setor', 'N/A'),
                         "Admissão": r.get('Admissão', 'N/A'),
                         "Status Atual": r['Status'],
-                        "Últimas Férias": r.get('Ultimas_Ferias', 'Nunca registradas'),
+                        "Últimas Férias": str(r.get('Ultimas_Ferias')) if pd.notnull(r.get('Ultimas_Ferias')) else 'Nunca registradas',
                         "Limite Concessivo": limite_conc.strftime('%d/%m/%Y'),
                         "Situação Férias": status_ferias
                     })
