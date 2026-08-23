@@ -64,9 +64,13 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Escala_Ferias')
     return output.getvalue()
 
+def ajustar_para_domingo(data_val):
+    dias_para_domingo = (6 - data_val.weekday()) % 7
+    return data_val + timedelta(days=dias_para_domingo)
+
 def renderizar_modulo_ferias(df):
-    st.subheader("🏖️ Escala Inteligente de Férias")
-    st.info("Planejador e distribuidor de períodos concessivos com prevenção de acúmulo e sobreposição de equipe.")
+    st.subheader("🏖️ Escala Inteligente com Algoritmo de Regras de Férias")
+    st.info("Regras Aplicadas: Início aos Domingos | Máx. 2 colabs/mês por setor (exceto Dez/Jan) | Aviso Prévio RH de 30 dias.")
 
     if df.empty:
         st.warning("Nenhum dado de colaborador disponível para gerar a escala.")
@@ -79,8 +83,13 @@ def renderizar_modulo_ferias(df):
         st.info("Não há colaboradores ativos para escalonamento.")
         return
 
-    lista_escala = []
+    if 'Aprovacao_RH' not in df.columns:
+        df['Aprovacao_RH'] = 'Pendente'
+    if 'Fracionamento' not in df.columns:
+        df['Fracionamento'] = '30 Dias Corridos'
 
+    # Ordena por urgência do limite concessivo
+    lista_temp = []
     for idx, r in df_ativos.iterrows():
         adm = r.get('dt_adm')
         ult_ferias = pd.to_datetime(r.get('Ultimas_Ferias'), dayfirst=True, errors='coerce').date() if pd.notnull(r.get('Ultimas_Ferias')) else None
@@ -92,37 +101,110 @@ def renderizar_modulo_ferias(df):
             fim_aq = inicio_aq + timedelta(days=365)
             limite_conc = fim_aq + timedelta(days=365)
             dias_restantes = (limite_conc - hoje).days
-
-            sugestao_mes = limite_conc - timedelta(days=60)
-            mes_sugerido_txt = sugestao_mes.strftime("%m/%Y")
-
-            situacao = "✅ Regular"
-            if dias_restantes <= 60 and dias_restantes > 0:
-                situacao = "⚠️ Agendar Imediatamente"
-            elif dias_restantes <= 0:
-                situacao = "🚨 Vencido (Risco Multa)"
-
-            lista_escala.append({
-                "Matrícula": r.get('Matricula', 'N/A'),
-                "Funcionário": r['Funcionário'],
-                "Setor": r.get('Setor', 'N/A'),
-                "Cargo": r.get('Cargo', 'N/A'),
-                "Admissão": r.get('Admissão', 'N/A'),
-                "Últimas Férias": r.get('Ultimas_Ferias', 'Não Registrada'),
-                "Limite Concessivo": limite_conc.strftime('%d/%m/%Y'),
-                "Dias pro Limite": dias_restantes,
-                "Sugestão de Mês": mes_sugerido_txt,
-                "Situação": situacao
+            
+            lista_temp.append({
+                'idx': idx,
+                'colab': r,
+                'limite_conc': limite_conc,
+                'dias_restantes': dias_restantes
             })
+
+    lista_temp = sorted(lista_temp, key=lambda x: x['limite_conc'])
+
+    # Ocupação por setor e mês/ano { (setor, ano_mes): qtd }
+    ocupacao_setor_mes = {}
+    lista_escala = []
+    alterou_dados = False
+
+    st.markdown("### ⚙️ Gestão de Escala, Fracionamento e Validação do RH")
+
+    for item in lista_temp:
+        idx = item['idx']
+        r = item['colab']
+        limite_conc = item['limite_conc']
+        dias_restantes = item['dias_restantes']
+        setor = r.get('Setor', 'Geral')
+
+        # Tenta agendar 60 dias antes do limite ou a partir de hoje + 30 dias (Aviso RH)
+        data_sugerida_inicial = max(hoje + timedelta(days=30), limite_conc - timedelta(days=60))
+        data_inicio = ajustar_para_domingo(data_sugerida_inicial)
+
+        # Procura o próximo mês viável respeitando o limite de 2 pessoas/mês por setor
+        while True:
+            chave_mes = (setor, data_inicio.strftime("%Y-%m"))
+            qtd_agendada = ocupacao_setor_mes.get(chave_mes, 0)
+            
+            is_dez_jan = data_inicio.month in [12, 1]
+            
+            if qtd_agendada < 2 or is_dez_jan:
+                ocupacao_setor_mes[chave_mes] = qtd_agendada + 1
+                break
+            else:
+                # Se excedeu a capacidade do setor, joga para o próximo mês
+                data_inicio = ajustar_para_domingo(data_inicio + timedelta(days=28))
+
+        data_aviso_rh = data_inicio - timedelta(days=30)
+        situacao_aviso = "⚠️ Emissão do Aviso de Férias RH!" if hoje >= data_aviso_rh and hoje < data_inicio else "OK"
+
+        situacao = "✅ Regular"
+        if dias_restantes <= 60 and dias_restantes > 0:
+            situacao = "⚠️ Agendar Imediatamente"
+        elif dias_restantes <= 0:
+            situacao = "🚨 Vencido (Risco Multa)"
+
+        c_info, c_frac, c_aprov = st.columns([2.5, 1.2, 1.3])
+        
+        with c_info:
+            st.write(f"👤 **{r['Funcionário']}** ({setor} - {r.get('Cargo', 'N/A')})")
+            st.caption(f"Início Sugerido (Domingo): **{data_inicio.strftime('%d/%m/%Y')}** | Emitir Aviso RH até: **{data_aviso_rh.strftime('%d/%m/%Y')}**")
+            st.caption(f"Limite: {limite_conc.strftime('%d/%m/%Y')} | Alerta RH: **{situacao_aviso}** | Situação: {situacao}")
+
+        with c_frac:
+            frac_atual = r.get('Fracionamento') if pd.notnull(r.get('Fracionamento')) else '30 Dias Corridos'
+            opcoes_frac = ['30 Dias Corridos', '15 + 15 Dias', '20 + 10 Dias']
+            idx_f = opcoes_frac.index(frac_atual) if frac_atual in opcoes_frac else 0
+            novo_frac = st.selectbox("Fracionamento", opcoes_frac, index=idx_f, key=f"frac_{idx}")
+            if novo_frac != frac_atual:
+                df.at[idx, 'Fracionamento'] = novo_frac
+                alterou_dados = True
+
+        with c_aprov:
+            aprov_atual = r.get('Aprovacao_RH') if pd.notnull(r.get('Aprovacao_RH')) else 'Pendente'
+            opcoes_aprov = ['Pendente', 'Aprovado RH', 'Em Análise', 'Rejeitado']
+            idx_a = opcoes_aprov.index(aprov_atual) if aprov_atual in opcoes_aprov else 0
+            nova_aprov = st.selectbox("Aprovação RH", opcoes_aprov, index=idx_a, key=f"aprov_{idx}")
+            if nova_aprov != aprov_atual:
+                df.at[idx, 'Aprovacao_RH'] = nova_aprov
+                alterou_dados = True
+
+        st.markdown("<hr style='margin: 5px 0 15px 0; border-color: #f0f2f6;'>", unsafe_allow_text=True)
+
+        lista_escala.append({
+            "Matrícula": r.get('Matricula', 'N/A'),
+            "Funcionário": r['Funcionário'],
+            "Setor": setor,
+            "Cargo": r.get('Cargo', 'N/A'),
+            "Início Férias (Domingo)": data_inicio.strftime('%d/%m/%Y'),
+            "Emissão Aviso RH": data_aviso_rh.strftime('%d/%m/%Y'),
+            "Limite Concessivo": limite_conc.strftime('%d/%m/%Y'),
+            "Fracionamento": df.at[idx, 'Fracionamento'],
+            "Status RH": df.at[idx, 'Aprovacao_RH']
+        })
+
+    if alterou_dados:
+        cols_salvar = [c for c in df.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
+        df[cols_salvar].to_excel("equipe.xlsx", index=False)
+        st.success("Aprovações salvas!")
+        st.rerun()
 
     df_escala = pd.DataFrame(lista_escala)
 
     if not df_escala.empty:
-        st.markdown("### 📋 Escala Sugerida do Quadro")
+        st.markdown("### 📋 Escala Processada para Impressão")
         st.dataframe(df_escala, use_container_width=True)
 
         st.markdown("---")
-        st.markdown("### 📥 Exportar Relatório da Escala")
+        st.markdown("### 📥 Exportar Escala Processada")
         
         c_down1, c_down2 = st.columns(2)
         
@@ -136,7 +218,7 @@ def renderizar_modulo_ferias(df):
             
         with c_down2:
             pdf_bytes = gerar_pdf_ferias(
-                "Relatório - Escala Inteligente de Férias",
+                "Relatório - Escala Inteligente de Férias e Aprovação RH",
                 df_escala
             )
             st.download_button(
