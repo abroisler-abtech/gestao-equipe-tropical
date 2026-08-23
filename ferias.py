@@ -1,302 +1,147 @@
-import datetime
-from dateutil.relativedelta import relativedelta
 import io
+from datetime import datetime, date, timedelta
 import pandas as pd
 import streamlit as st
 
+# --- GERADOR DE RELATÓRIO EM PDF PARA O MÓDULO DE FÉRIAS ---
+def gerar_pdf_ferias(titulo, df_escala):
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
 
-def ajustar_para_domingo(data):
-  """Garante que a data inicial seja um domingo (weekday == 6)."""
-  dias = (6 - data.weekday()) % 7
-  return data + datetime.timedelta(days=dias)
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elements = []
 
-
-def calcular_proxima_elegibilidade(dt_adm, dt_ult_ferias, limite_minimo_inicio):
-  """Calcula a próxima data de elegibilidade dentro do ciclo atual/futuro."""
-  if pd.isnull(dt_adm):
-    return None
-
-  data_base = dt_ult_ferias if pd.notnull(dt_ult_ferias) else dt_adm
-  data_elegivel = data_base + relativedelta(years=1)
-
-  while data_elegivel < limite_minimo_inicio:
-    data_elegivel += relativedelta(years=1)
-
-  return data_elegivel
-
-
-def alocar_ferias(
-    df_input,
-    cota_geral_padrao,
-    cota_separacao,
-    cota_outros_setores,
-    flexibilizar_dez_jan,
-    cota_alta_temporada,
-    dias_gap_rh=30,
-):
-  df_sorted = df_input.copy()
-  hoje = datetime.date.today()
-  limite_minimo_inicio = hoje + datetime.timedelta(days=dias_gap_rh)
-
-  col_nome = (
-      "Funcionário"
-      if "Funcionário" in df_sorted.columns
-      else next(
-          (
-              c
-              for c in df_sorted.columns
-              if "func" in str(c).lower() or "nome" in str(c).lower()
-          ),
-          None,
-      )
-  )
-  col_setor = (
-      "Setor"
-      if "Setor" in df_sorted.columns
-      else next(
-          (c for c in df_sorted.columns if "setor" in str(c).lower()), None
-      )
-  )
-
-  if "dt_adm" in df_sorted.columns:
-    col_admissao = "dt_adm"
-  elif "Admissão" in df_sorted.columns:
-    col_admissao = "Admissão"
-  else:
-    col_admissao = next(
-        (c for c in df_sorted.columns if "admiss" in str(c).lower()), None
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#1E3A8A"),
+        spaceAfter=15,
+        alignment=0
     )
+    
+    hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
+    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora</font>", styles['Normal']))
+    elements.append(Spacer(1, 15))
 
-  col_ult_ferias = (
-      "dt_ult_ferias"
-      if "dt_ult_ferias" in df_sorted.columns
-      else ("Ultimas_Ferias" if "Ultimas_Ferias" in df_sorted.columns else None)
-  )
+    colunas = list(df_escala.columns)
+    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
+    
+    for _, linha in df_escala.iterrows():
+        row_data = []
+        for item in linha:
+            val_str = str(item) if pd.notnull(item) else ""
+            row_data.append(Paragraph(val_str, styles['Normal']))
+        table_data.append(row_data)
 
-  if not (col_nome and col_setor and col_admissao):
-    return (
-        None,
-        "As colunas necessárias ('Funcionário', 'Setor' e 'Admissão') não foram"
-        " encontradas.",
-    )
+    t = Table(table_data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#E2E8F0")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#1E293B")),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    
+    elements.append(t)
+    doc.build(elements)
+    pdf_out = buffer.getvalue()
+    buffer.close()
+    return pdf_out
 
-  df_sorted[col_admissao] = pd.to_datetime(
-      df_sorted[col_admissao], errors="coerce"
-  ).dt.date
-  df_sorted = df_sorted.dropna(subset=[col_admissao])
+def converter_df_para_excel(df_exp):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_exp.to_excel(writer, index=False, sheet_name='Escala_Ferias')
+    return output.getvalue()
 
-  if col_ult_ferias:
-    df_sorted[col_ult_ferias] = pd.to_datetime(
-        df_sorted[col_ult_ferias], dayfirst=True, errors="coerce"
-    ).dt.date
+def renderizar_modulo_ferias(df):
+    st.subheader("🏖️ Escala Inteligente de Férias")
+    st.info("Planejador e distribuidor de períodos concessivos com prevenção de acúmulo e sobreposição de equipe.")
 
-  df_sorted["data_elegivel"] = df_sorted.apply(
-      lambda r: calcular_proxima_elegibilidade(
-          r[col_admissao],
-          r[col_ult_ferias] if col_ult_ferias else None,
-          limite_minimo_inicio,
-      ),
-      axis=1,
-  )
+    if df.empty:
+        st.warning("Nenhum dado de colaborador disponível para gerar a escala.")
+        return
 
-  df_sorted = df_sorted.dropna(subset=["data_elegivel"])
-  df_sorted = df_sorted.sort_values(by="data_elegivel")
+    hoje = date.today()
+    df_ativos = df[df['Status'].isin(['Ativo', 'Férias'])].copy()
 
-  ocupacao = {}
-  resultado = []
+    if df_ativos.empty:
+        st.info("Não há colaboradores ativos para escalonamento.")
+        return
 
-  for _, row in df_sorted.iterrows():
-    data_base = row["data_elegivel"]
-    inicio_busca = max(data_base, limite_minimo_inicio)
+    lista_escala = []
 
-    ano = inicio_busca.year
-    mes = inicio_busca.month
+    for idx, r in df_ativos.iterrows():
+        adm = r.get('dt_adm')
+        ult_ferias = pd.to_datetime(r.get('Ultimas_Ferias'), dayfirst=True, errors='coerce').date() if pd.notnull(r.get('Ultimas_Ferias')) else None
+        data_base = ult_ferias if pd.notnull(ult_ferias) else adm
 
-    alocado = False
-    tentativas = 0
+        if pd.notnull(data_base):
+            anos = (hoje - data_base).days // 365
+            inicio_aq = data_base + timedelta(days=365 * max(0, anos))
+            fim_aq = inicio_aq + timedelta(days=365)
+            limite_conc = fim_aq + timedelta(days=365)
+            dias_restantes = (limite_conc - hoje).days
 
-    while not alocado and tentativas < 24:
-      chave_mes = (ano, mes)
-      if chave_mes not in ocupacao:
-        ocupacao[chave_mes] = {"total": 0, "setores": {}}
+            sugestao_mes = limite_conc - timedelta(days=60)
+            mes_sugerido_txt = sugestao_mes.strftime("%m/%Y")
 
-      dados_mes = ocupacao[chave_mes]
+            situacao = "✅ Regular"
+            if dias_restantes <= 60 and dias_restantes > 0:
+                situacao = "⚠️ Agendar Imediatamente"
+            elif dias_restantes <= 0:
+                situacao = "🚨 Vencido (Risco Multa)"
 
-      eh_alta_temporada = flexibilizar_dez_jan and (mes == 12 or mes == 1)
-      limite_geral = (
-          cota_alta_temporada if eh_alta_temporada else cota_geral_padrao
-      )
+            lista_escala.append({
+                "Matrícula": r.get('Matricula', 'N/A'),
+                "Funcionário": r['Funcionário'],
+                "Setor": r.get('Setor', 'N/A'),
+                "Cargo": r.get('Cargo', 'N/A'),
+                "Admissão": r.get('Admissão', 'N/A'),
+                "Últimas Férias": r.get('Ultimas_Ferias', 'Não Registrada'),
+                "Limite Concessivo": limite_conc.strftime('%d/%m/%Y'),
+                "Dias pro Limite": dias_restantes,
+                "Sugestão de Mês": mes_sugerido_txt,
+                "Situação": situacao
+            })
 
-      setor = str(row[col_setor]).strip()
-      limite_setor = (
-          cota_separacao
-          if setor.lower() in ["separação", "separacao"]
-          else cota_outros_setores
-      )
-      if eh_alta_temporada:
-        limite_setor = limite_geral
+    df_escala = pd.DataFrame(lista_escala)
 
-      qtd_setor = dados_mes["setores"].get(setor, 0)
+    if not df_escala.empty:
+        st.markdown("### 📋 Escala Sugerida do Quadro")
+        st.dataframe(df_escala, use_container_width=True)
 
-      if dados_mes["total"] < limite_geral and qtd_setor < limite_setor:
-        dados_mes["total"] += 1
-        dados_mes["setores"][setor] = qtd_setor + 1
-
-        primeiro_dia_mes = datetime.date(ano, mes, 1)
-
-        if primeiro_dia_mes < inicio_busca:
-          data_inicio_sugerida = ajustar_para_domingo(inicio_busca)
-        else:
-          data_inicio_sugerida = ajustar_para_domingo(primeiro_dia_mes)
-
-        if data_inicio_sugerida < limite_minimo_inicio:
-          data_inicio_sugerida += datetime.timedelta(days=7)
-
-        fim_ferias = data_inicio_sugerida + datetime.timedelta(days=30)
-        aviso_previo_limite = data_inicio_sugerida - datetime.timedelta(
-            days=30
-        )
-
-        tipo_alocacao = (
-            "🎄 Coletivas / Pico"
-            if eh_alta_temporada
-            else "📅 Escala Regular"
-        )
-        if tentativas > 0 and not eh_alta_temporada:
-          tipo_alocacao = f"🔄 Rolado (+{tentativas} m)"
-
-        resultado.append({
-            "Aprovar p/ RH": False,
-            "Colaborador": row[col_nome],
-            "Setor": setor,
-            "Admissão": row[col_admissao].strftime("%d/%m/%Y"),
-            "Início Férias (Domingo)": data_inicio_sugerida.strftime("%d/%m/%Y"),
-            "Retorno": fim_ferias.strftime("%d/%m/%Y"),
-            "Prazo Máx. Aviso RH": aviso_previo_limite.strftime("%d/%m/%Y"),
-            "Tipo Alocação": tipo_alocacao,
-            "Cota Setor": f"{dados_mes['setores'][setor]}/{limite_setor}",
-            "Cota Mês": f"{dados_mes['total']}/{limite_geral}",
-        })
-        alocado = True
-      else:
-        mes += 1
-        if mes > 12:
-          mes = 1
-          ano += 1
-        tentativas += 1
-
-  return pd.DataFrame(resultado), None
-
-
-def converter_ferias_para_excel(df_exp):
-  output = io.BytesIO()
-  with pd.ExcelWriter(output, engine="openpyxl") as writer:
-    df_exp.to_excel(writer, index=False, sheet_name="Escala_Ferias_RH")
-  return output.getvalue()
-
-
-def renderizar_modulo_ferias(df_base):
-  st.title("📅 Planejamento Inteligente de Férias")
-  st.caption(
-      "Marque a caixa 'Aprovar p/ RH' para selecionar os colaboradores autorizados"
-      " para o pedido formal."
-  )
-
-  if df_base is None or df_base.empty:
-    st.warning("⚠️ Nenhuma base de dados carregada para simulação.")
-    return
-
-  st.sidebar.header("⚙️ Cotas & Prazos")
-  gap_rh = st.sidebar.number_input(
-      "Gap Mínimo RH (Dias)",
-      min_value=15,
-      max_value=60,
-      value=30,
-      step=5,
-      key="f_gap",
-  )
-  cota_geral = st.sidebar.number_input(
-      "Cota Geral (Máx/Mês)", min_value=1, value=2, key="f_cg"
-  )
-  cota_sep = st.sidebar.number_input(
-      "Máx. Separação", min_value=1, value=2, key="f_cs"
-  )
-  cota_outros = st.sidebar.number_input(
-      "Máx. Outros Setores", min_value=1, value=1, key="f_co"
-  )
-
-  st.sidebar.subheader("🏖️ Alta Temporada / Coletivas")
-  flexib = st.sidebar.checkbox(
-      "Expandir Dez/Jan (Coletivas)", value=True, key="f_flex"
-  )
-  cota_alta = st.sidebar.number_input(
-      "Cota Expandida Dez/Jan", min_value=2, value=5, key="f_ca"
-  )
-
-  if st.button("🔄 Simular / Recalcular Escala", type="primary"):
-    df_res, erro = alocar_ferias(
-        df_base, cota_geral, cota_sep, cota_outros, flexib, cota_alta, gap_rh
-    )
-
-    if erro:
-      st.error(erro)
-    else:
-      st.session_state["df_res_ferias"] = df_res
-
-  if "df_res_ferias" in st.session_state:
-    df_res = st.session_state["df_res_ferias"]
-
-    setores = ["Todos"] + list(df_res["Setor"].unique())
-    setor_sel = st.selectbox("🔍 Filtrar visualização por Setor:", setores)
-
-    df_exibir = (
-        df_res[df_res["Setor"] == setor_sel] if setor_sel != "Todos" else df_res
-    )
-
-    st.markdown(
-        "##### 📋 Tabela de Planejamento (Marque para Alocar/Confirmar):"
-    )
-
-    df_editado = st.data_editor(
-        df_exibir,
-        column_config={
-            "Aprovar p/ RH": st.column_config.CheckboxColumn(
-                "Aprovar p/ RH?",
-                help="Marque para confirmar o pedido oficial de férias",
-                default=False,
+        st.markdown("---")
+        st.markdown("### 📥 Exportar Relatório da Escala")
+        
+        c_down1, c_down2 = st.columns(2)
+        
+        with c_down1:
+            st.download_button(
+                label="📥 Baixar Escala em Excel (.xlsx)",
+                data=converter_df_para_excel(df_escala),
+                file_name=f"escala_inteligente_ferias_{hoje.strftime('%d_%m_%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        },
-        disabled=[col for col in df_exibir.columns if col != "Aprovar p/ RH"],
-        hide_index=True,
-        use_container_width=True,
-        key="editor_ferias",
-    )
-
-    st.session_state["df_res_ferias"].update(df_editado)
-
-    df_aprovados = df_editado[df_editado["Aprovar p/ RH"] == True]
-
-    st.markdown("---")
-    st.subheader(
-        f"✅ Pedidos Confirmados p/ RH ({len(df_aprovados)} selecionado(s))"
-    )
-
-    if not df_aprovados.empty:
-      st.dataframe(df_aprovados, use_container_width=True)
-
-      st.download_button(
-          label="📥 Baixar Apenas Selecionados para Enviar ao RH (.xlsx)",
-          data=converter_ferias_para_excel(df_aprovados),
-          file_name=(
-              "pedidos_ferias_aprovados_rh_"
-              f"{datetime.date.today().strftime('%d_%m_%Y')}.xlsx"
-          ),
-          mime=(
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          ),
-      )
-    else:
-      st.info(
-          "Nenhum colaborador marcado na caixa 'Aprovar p/ RH' ainda. Marque os"
-          " checkboxes na tabela acima para gerar a lista oficial."
-      )
+            
+        with c_down2:
+            pdf_bytes = gerar_pdf_ferias(
+                "Relatório - Escala Inteligente de Férias",
+                df_escala
+            )
+            st.download_button(
+                label="🖨️ Baixar PDF para Impressão",
+                data=pdf_bytes,
+                file_name=f"escala_inteligente_ferias_{hoje.strftime('%d_%m_%Y')}.pdf",
+                mime="application/pdf"
+            )
