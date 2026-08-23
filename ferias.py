@@ -11,33 +11,33 @@ def gerar_pdf_ferias(titulo, df_escala):
     from reportlab.lib import colors
 
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=25)
     elements = []
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         'TitleStyle',
         parent=styles['Heading1'],
-        fontSize=16,
-        leading=20,
+        fontSize=14,
+        leading=18,
         textColor=colors.HexColor("#1E3A8A"),
-        spaceAfter=15,
+        spaceAfter=12,
         alignment=0
     )
     
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
-    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora</font>", styles['Normal']))
-    elements.append(Spacer(1, 15))
+    elements.append(Paragraph(f"<font size=8 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora</font>", styles['Normal']))
+    elements.append(Spacer(1, 10))
 
     colunas = list(df_escala.columns)
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
+    table_data = [[Paragraph(f"<b><font size=8>{col}</font></b>", styles['Normal']) for col in colunas]]
     
     for _, linha in df_escala.iterrows():
         row_data = []
         for item in linha:
             val_str = str(item) if pd.notnull(item) else ""
-            row_data.append(Paragraph(val_str, styles['Normal']))
+            row_data.append(Paragraph(f"<font size=8>{val_str}</font>", styles['Normal']))
         table_data.append(row_data)
 
     t = Table(table_data, repeatRows=1)
@@ -48,8 +48,8 @@ def gerar_pdf_ferias(titulo, df_escala):
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
         ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
     ]))
     
     elements.append(t)
@@ -107,7 +107,8 @@ def renderizar_modulo_ferias(df):
                 'idx': idx,
                 'colab': r,
                 'limite_conc': limite_conc,
-                'dias_restantes': dias_restantes
+                'dias_restantes': dias_restantes,
+                'ult_ferias': ult_ferias
             })
 
     lista_temp = sorted(lista_temp, key=lambda x: x['limite_conc'])
@@ -123,6 +124,7 @@ def renderizar_modulo_ferias(df):
         r = item['colab']
         limite_conc = item['limite_conc']
         dias_restantes = item['dias_restantes']
+        ult_ferias = item['ult_ferias']
         setor = r.get('Setor', 'Geral')
 
         data_sugerida_inicial = max(hoje + timedelta(days=30), limite_conc - timedelta(days=60))
@@ -143,16 +145,14 @@ def renderizar_modulo_ferias(df):
         data_aviso_rh = data_inicio - timedelta(days=30)
         situacao_aviso = "⚠️ Emissão do Aviso de Férias RH!" if hoje >= data_aviso_rh and hoje < data_inicio else "OK"
 
-        situacao = "✅ Regular"
-        if dias_restantes <= 60 and dias_restantes > 0:
-            situacao = "⚠️ Agendar Imediatamente"
-        elif dias_restantes <= 0:
-            situacao = "🚨 Vencido (Risco Multa)"
+        dt_adm_str = r['dt_adm'].strftime('%d/%m/%Y') if pd.notnull(r.get('dt_adm')) else (r.get('Admissão', 'N/A'))
+        dt_ult_str = ult_ferias.strftime('%d/%m/%Y') if pd.notnull(ult_ferias) else 'Não Registrada'
 
         c_info, c_frac, c_aprov, c_conf = st.columns([2.2, 1.1, 1.2, 0.9])
         
         with c_info:
             st.write(f"👤 **{r['Funcionário']}** ({setor} - {r.get('Cargo', 'N/A')})")
+            st.caption(f"Admissão: **{dt_adm_str}** | Últs Férias: **{dt_ult_str}**")
             st.caption(f"Início Sugerido (Domingo): **{data_inicio.strftime('%d/%m/%Y')}** | Aviso RH: **{data_aviso_rh.strftime('%d/%m/%Y')}**")
             st.caption(f"Limite: {limite_conc.strftime('%d/%m/%Y')} | Alerta RH: **{situacao_aviso}**")
 
@@ -188,12 +188,14 @@ def renderizar_modulo_ferias(df):
             "Funcionário": r['Funcionário'],
             "Setor": setor,
             "Cargo": r.get('Cargo', 'N/A'),
+            "Admissão": dt_adm_str,
+            "Últimas Férias": dt_ult_str,
             "Início Férias (Domingo)": data_inicio.strftime('%d/%m/%Y'),
             "Emissão Aviso RH": data_aviso_rh.strftime('%d/%m/%Y'),
             "Limite Concessivo": limite_conc.strftime('%d/%m/%Y'),
             "Fracionamento": df.at[idx, 'Fracionamento'],
             "Status RH": df.at[idx, 'Aprovacao_RH'],
-            "Escala Confirmada": "SIM" if df.at[idx, 'Escala_Confirmada'] else "NÃO"
+            "Confirmada": "SIM" if df.at[idx, 'Escala_Confirmada'] else "NÃO"
         })
 
     if alterou_dados:
