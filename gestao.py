@@ -33,13 +33,11 @@ def gerar_pdf_simples(titulo, colunas, dados):
         alignment=0
     )
     
-    # Título do Relatório com data de emissão
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
     elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora</font>", styles['Normal']))
     elements.append(Spacer(1, 15))
 
-    # Formatação dos dados em tabela
     table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
     for linha in dados:
         row_data = []
@@ -566,16 +564,43 @@ if verificar_senha():
 
         elif menu == "Aniversariantes do Mês":
             st.subheader(f"🎂 Aniversariantes do Mês - {setor_selecionado}")
-            mes_sel = st.selectbox("Selecione o Mês", range(1, 13), index=hoje.month - 1)
+            meses_nomes = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            mes_sel_idx = st.selectbox("Selecione o Mês", range(1, 13), index=hoje.month - 1, format_func=lambda m: meses_nomes[m-1])
+            
             if 'dt_nasc_dt' in df_filtrado.columns:
-                df_niver = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == mes_sel].copy()
+                df_niver = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == mes_sel_idx].copy()
                 if not df_niver.empty:
-                    df_niver['dia'] = df_niver['dt_nasc_dt'].dt.day
-                    df_niver = df_niver.sort_values(by='dia')
-                    for _, r in df_niver.iterrows():
-                        st.write(f"🎈 **Dia {r['dia']:02d}** - {r['Funcionário']} ({r.get('Cargo', 'N/A')} - Setor: {r.get('Setor', 'N/A')})")
+                    df_niver['Dia'] = df_niver['dt_nasc_dt'].dt.day
+                    df_niver = df_niver.sort_values(by='Dia')
+                    
+                    cols_niver_exibir = [c for c in ['Dia', 'Funcionário', 'Cargo', 'Setor', 'Contato'] if c in df_niver.columns]
+                    df_niver_tabela = df_niver[cols_niver_exibir].copy()
+                    
+                    st.dataframe(df_niver_tabela, use_container_width=True)
+                    
+                    st.markdown("---")
+                    c_down1, c_down2 = st.columns(2)
+                    with c_down1:
+                        st.download_button(
+                            label="📥 Baixar Lista em Excel (.xlsx)",
+                            data=converter_df_para_excel(df_niver_tabela),
+                            file_name=f"aniversariantes_{meses_nomes[mes_sel_idx-1].lower()}_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    with c_down2:
+                        pdf_bytes = gerar_pdf_simples(
+                            f"Aniversariantes de {meses_nomes[mes_sel_idx-1]} - Setor: {setor_selecionado}",
+                            list(df_niver_tabela.columns),
+                            df_niver_tabela.values.tolist()
+                        )
+                        st.download_button(
+                            label="🖨️ Baixar PDF para Impressão",
+                            data=pdf_bytes,
+                            file_name=f"aniversariantes_{meses_nomes[mes_sel_idx-1].lower()}_{setor_selecionado.lower().replace(' ', '_')}.pdf",
+                            mime="application/pdf"
+                        )
                 else:
-                    st.info("Nenhum aniversariante neste setor/mês.")
+                    st.info(f"Nenhum aniversariante no mês de {meses_nomes[mes_sel_idx-1]} para o setor selecionado.")
             else:
                 st.info("Nenhuma data de nascimento válida cadastrada.")
 
