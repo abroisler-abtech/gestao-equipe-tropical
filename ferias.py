@@ -20,57 +20,51 @@ def alocar_ferias(
 ):
   df_sorted = df_input.copy()
 
-  # Busca ultra flexível de colunas
-  cols = [str(c) for c in df_sorted.columns]
+  # Mapeamento direto com fallback para o quadro da Tropical
+  col_nome = (
+      "Funcionário"
+      if "Funcionário" in df_sorted.columns
+      else next(
+          (
+              c
+              for c in df_sorted.columns
+              if "func" in str(c).lower() or "nome" in str(c).lower()
+          ),
+          None,
+      )
+  )
+  col_setor = (
+      "Setor"
+      if "Setor" in df_sorted.columns
+      else next(
+          (c for c in df_sorted.columns if "setor" in str(c).lower()), None
+      )
+  )
 
-  col_nome = next(
-      (
-          c
-          for c in df_sorted.columns
-          if str(c).strip().lower()
-          in [
-              "funcionário",
-              "funcionario",
-              "nome",
-              "colaborador",
-              "nome completo",
-          ]
-      ),
-      None,
-  )
-  col_setor = next(
-      (
-          c
-          for c in df_sorted.columns
-          if str(c).strip().lower() in ["setor", "área", "area", "departamento"]
-      ),
-      None,
-  )
-  col_admissao = next(
-      (
-          c
-          for c in df_sorted.columns
-          if str(c).strip().lower()
-          in ["admissão", "admissao", "dt_adm", "data de admissão"]
-          or "admiss" in str(c).lower()
-      ),
-      None,
-  )
+  # Busca priorizando a coluna tratada 'dt_adm' criada pelo gestao.py
+  if "dt_adm" in df_sorted.columns:
+    col_admissao = "dt_adm"
+  elif "Admissão" in df_sorted.columns:
+    col_admissao = "Admissão"
+  else:
+    col_admissao = next(
+        (c for c in df_sorted.columns if "admiss" in str(c).lower()), None
+    )
 
   if not (col_nome and col_setor and col_admissao):
     return (
         None,
         "As colunas necessárias ('Funcionário', 'Setor' e 'Admissão') não foram"
-        f" identificadas. Colunas encontradas no arquivo: {list(df_sorted.columns)}",
+        f" identificadas. Colunas disponíveis: {list(df_sorted.columns)}",
     )
 
-  # Converte e trata as datas
+  # Converte data de admissão e remove inválidos
   df_sorted[col_admissao] = pd.to_datetime(
-      df_sorted[col_admissao], dayfirst=True, errors="coerce"
+      df_sorted[col_admissao], errors="coerce"
   )
   df_sorted = df_sorted.dropna(subset=[col_admissao])
 
-  # Elegibilidade após 1 ano de contratação
+  # Elegibilidade após 1 ano
   df_sorted["data_elegivel"] = df_sorted[col_admissao].apply(
       lambda x: x + relativedelta(years=1)
   )
@@ -94,13 +88,13 @@ def alocar_ferias(
 
       dados_mes = ocupacao[chave_mes]
 
-      # Flexibilização de Dezembro e Janeiro
+      # Alta Temporada (Dezembro / Janeiro)
       eh_alta_temporada = flexibilizar_dez_jan and (mes == 12 or mes == 1)
       limite_geral = (
           cota_alta_temporada if eh_alta_temporada else cota_geral_padrao
       )
 
-      # Trava por Setor (Separação x Demais)
+      # Cota do Setor
       setor = str(row[col_setor]).strip()
       limite_setor = (
           cota_separacao
@@ -112,7 +106,6 @@ def alocar_ferias(
 
       qtd_setor = dados_mes["setores"].get(setor, 0)
 
-      # Aplica cotas
       if dados_mes["total"] < limite_geral and qtd_setor < limite_setor:
         dados_mes["total"] += 1
         dados_mes["setores"][setor] = qtd_setor + 1
