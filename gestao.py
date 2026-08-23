@@ -20,11 +20,11 @@ def verificar_senha():
         senha_digitada = st.text_input("Digite a Senha de Acesso:", type="password")
         btn_entrar = st.button("🔑 Entrar no Sistema")
         
-        # Tenta buscar dos secrets (nuvem), se não existir usa a senha padrão local '030711'
+        # Tenta buscar dos secrets (nuvem), se não existir usa a senha padrão local '1234'
         try:
             senha_correta = st.secrets["SENHA_ACESSO"]
         except Exception:
-            senha_correta = "030711"
+            senha_correta = "1234"
         
         if btn_entrar:
             if senha_digitada == senha_correta:
