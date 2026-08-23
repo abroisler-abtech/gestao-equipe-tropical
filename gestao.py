@@ -50,7 +50,7 @@ if verificar_senha():
             if col_adm:
                 df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce')
 
-            # Trata Data de Nascimento
+            # Trata Data de Nascimento de Forma Robusta (Garante Dia e Mês)
             col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), None)
             if col_nasc:
                 df['dt_nascimento'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
@@ -90,18 +90,21 @@ if verificar_senha():
 
         # --- ANIVERSARIANTES DO DIA E DO MÊS ---
         if 'dt_nascimento' in df.columns:
-            # Garante a checagem exata por dia e mês de nascimento
-            df_valid_nasc = df.dropna(subset=['dt_nascimento'])
+            df_valid_nasc = df.dropna(subset=['dt_nascimento']).copy()
+            
+            # Filtra Aniversariantes de Hoje (Dia e Mês do sistema)
             aniv_hoje = df_valid_nasc[
                 (df_valid_nasc['dt_nascimento'].dt.day == hoje.day) & 
                 (df_valid_nasc['dt_nascimento'].dt.month == hoje.month)
             ].copy()
+            
+            # Filtra Aniversariantes do Mês Vigente
             df_aniversariantes = df_valid_nasc[df_valid_nasc['dt_nascimento'].dt.month == hoje.month].copy()
         else:
             aniv_hoje = pd.DataFrame()
             df_aniversariantes = pd.DataFrame()
 
-        # --- GERENCIAMENTO DE ESTADO DA NAVEGAÇÃO ---
+        # --- OPÇÕES DO MENU DE NAVEGAÇÃO ---
         opcoes_menu = [
             "🏠 Dashboard Principal",
             "🎂 Aniversariantes do Mês",
@@ -112,15 +115,11 @@ if verificar_senha():
             "👥 Cadastrar / Editar Colaborador"
         ]
 
-        if "menu_selecionado" not in st.session_state:
-            st.session_state["menu_selecionado"] = "🏠 Dashboard Principal"
+        if "modulo_ativo" not in st.session_state:
+            st.session_state["modulo_ativo"] = "🏠 Dashboard Principal"
 
-        def navegar_para(modulo):
-            st.session_state["menu_selecionado"] = modulo
-
-        # --- BARRA LATERAL (NAVEGAÇÃO) ---
+        # Barra Lateral
         st.sidebar.title("🌴 Gestão Tropical")
-
         st.sidebar.metric("👷 Operação Ativa", f"{len(df_ativos)} colab.")
         st.sidebar.metric("🏖️ Em Férias Hoje", f"{len(df_em_ferias)} colab.")
         st.sidebar.metric("🏥 Afastados (INSS)", f"{len(df_inss)} colab.")
@@ -128,15 +127,16 @@ if verificar_senha():
         setores = ["Todos"] + list(df['Setor'].dropna().unique())
         setor_selecionado = st.sidebar.selectbox("Filtrar Setor:", setores)
 
-        # Radio button sincronizado com session_state
-        menu_index = opcoes_menu.index(st.session_state["menu_selecionado"]) if st.session_state["menu_selecionado"] in opcoes_menu else 0
+        # Atualiza a escolha do menu pela barra lateral
         menu = st.sidebar.radio(
             "Selecione o Módulo:",
             opcoes_menu,
-            index=menu_index,
-            key="radio_menu"
+            index=opcoes_menu.index(st.session_state["modulo_ativo"]) if st.session_state["modulo_ativo"] in opcoes_menu else 0
         )
-        st.session_state["menu_selecionado"] = menu
+
+        # Se o usuário clicar na sidebar, sincroniza a variável
+        if menu != st.session_state["modulo_ativo"]:
+            st.session_state["modulo_ativo"] = menu
 
         # Filtro de Setor
         if setor_selecionado != "Todos":
@@ -155,18 +155,17 @@ if verificar_senha():
             aniv_hoje_f = aniv_hoje
 
         # --- MÓDULO 1: DASHBOARD PRINCIPAL ---
-        if menu == "🏠 Dashboard Principal":
+        if st.session_state["modulo_ativo"] == "🏠 Dashboard Principal":
             st.title("🌴 Dashboard Gestão de Equipe - Tropical")
 
             # BANNER DE ANIVERSARIANTES DO DIA
             if not aniv_hoje_f.empty:
                 st.balloons()
                 for _, row in aniv_hoje_f.iterrows():
-                    st.success(f"🎉 **HOJE É DIA DE FESTA!** Parabéns ao colaborador **{row['Funcionário']}** ({row['Setor']}) pelo seu aniversário hoje! 🎂🎈")
+                    st.success(f"🎉 **HOJE É DIA DE FESTA!** Parabéns ao colaborador **{row['Funcionário']}** ({row['Setor']}) pelo seu aniversário hoje ({hoje.strftime('%d/%m')})! 🎂🎈")
 
-            st.markdown("##### 📌 Clique nos cartões para abrir os relatórios detalhados:")
+            st.markdown("##### 📌 Clique no botão abaixo do cartão para abrir o relatório:")
 
-            # CARDS CLICÁVEIS COM BOTÕES DE NAVEGAÇÃO
             col1, col2, col3, col4, col5 = st.columns(5)
 
             with col1:
@@ -174,40 +173,40 @@ if verificar_senha():
 
             with col2:
                 st.metric("👷 Ativos na Operação", len(df_ativos_f))
-                if st.button("Ver Ativos 🔍", key="btn_ver_ativos"):
-                    navegar_para("👥 Cadastrar / Editar Colaborador")
+                if st.button("Ver Ativos 🔍"):
+                    st.session_state["modulo_ativo"] = "👥 Cadastrar / Editar Colaborador"
                     st.rerun()
 
             with col3:
                 st.metric("🏖️ Em Férias", len(df_ferias_f))
-                if st.button("Ver Férias 🔍", key="btn_ver_ferias"):
-                    navegar_para("🏖️ Janela - Equipe em Férias")
+                if st.button("Ver Férias 🔍"):
+                    st.session_state["modulo_ativo"] = "🏖️ Janela - Equipe em Férias"
                     st.rerun()
 
             with col4:
                 st.metric("🏥 INSS / Afastados", len(df_inss_f))
-                if st.button("Ver INSS 🔍", key="btn_ver_inss"):
-                    navegar_para("🏥 Janela - Afastados (INSS)")
+                if st.button("Ver INSS 🔍"):
+                    st.session_state["modulo_ativo"] = "🏥 Janela - Afastados (INSS)"
                     st.rerun()
 
             with col5:
                 st.metric("⏳ Em Experiência", len(df_exp_f))
-                if st.button("Ver Experiência 🔍", key="btn_ver_exp"):
-                    navegar_para("⏳ Contratos de Experiência (45/90d)")
+                if st.button("Ver Experiência 🔍"):
+                    st.session_state["modulo_ativo"] = "⏳ Contratos de Experiência (45/90d)"
                     st.rerun()
 
             st.markdown("---")
 
-            # BOTÃO DE ATALHO RÁPIDO PARA ANIVERSARIANTES DO MÊS
+            # BANNER DE ANIVERSARIANTES DO MÊS
             c_aniv1, c_aniv2 = st.columns([3, 1])
             with c_aniv1:
-                st.info(f"🎂 **Aniversariantes do Mês ({hoje.strftime('%m/%Y')}):** {len(df_aniv_f)} colaborador(es) comemorando aniversário este mês.")
+                st.info(f"🎂 **Aniversariantes do Mês ({hoje.strftime('%m/%Y')}):** Existem {len(df_aniv_f)} colaborador(es) comemorando aniversário este mês.")
             with c_aniv2:
-                if st.button("Ver Aniversariantes 🎂", key="btn_ver_aniv"):
-                    navegar_para("🎂 Aniversariantes do Mês")
+                if st.button("Ver Aniversariantes 🎂"):
+                    st.session_state["modulo_ativo"] = "🎂 Aniversariantes do Mês"
                     st.rerun()
 
-            # ALERTAS DE CONTRATO DE EXPERIÊNCIA VENCENDO
+            # ALERTAS DE CONTRATOS DE EXPERIÊNCIA
             if not df_exp_f.empty:
                 vencendo_7d = df_exp_f[
                     ((df_exp_f['Venc_45_dias'] >= hoje) & (df_exp_f['Venc_45_dias'] <= hoje + timedelta(days=7))) |
@@ -216,7 +215,7 @@ if verificar_senha():
                 if not vencendo_7d.empty:
                     st.warning(f"⚠️ **Alerta RH:** Existem {len(vencendo_7d)} contrato(s) de experiência atingindo prazo nos próximos 7 dias!")
 
-            # GRÁFICOS
+            # GRÁFICOS ESTATÍSTICOS
             g_col1, g_col2 = st.columns(2)
 
             with g_col1:
@@ -230,7 +229,7 @@ if verificar_senha():
                 st.plotly_chart(fig_status, use_container_width=True)
 
         # --- MÓDULO 2: ANIVERSARIANTES DO MÊS ---
-        elif menu == "🎂 Aniversariantes do Mês":
+        elif st.session_state["modulo_ativo"] == "🎂 Aniversariantes do Mês":
             st.title("🎂 Aniversariantes do Mês Vigente")
             st.caption(f"Colaboradores que comemoram aniversário no mês {hoje.strftime('%m/%Y')}.")
 
@@ -248,7 +247,7 @@ if verificar_senha():
                 st.dataframe(df_aniv_exibir, use_container_width=True, hide_index=True)
 
         # --- MÓDULO 3: CONTRATOS DE EXPERIÊNCIA ---
-        elif menu == "⏳ Contratos de Experiência (45/90d)":
+        elif st.session_state["modulo_ativo"] == "⏳ Contratos de Experiência (45/90d)":
             st.title("⏳ Controle de Contratos de Experiência")
             st.caption("Acompanhamento das duas etapas de avaliação: 45 dias e 90 dias.")
 
@@ -266,7 +265,7 @@ if verificar_senha():
                 st.dataframe(df_exp_exibir, use_container_width=True, hide_index=True)
 
         # --- MÓDULO 4: JANELA - EQUIPE EM FÉRIAS ---
-        elif menu == "🏖️ Janela - Equipe em FÉRIAS":
+        elif st.session_state["modulo_ativo"] == "🏖️ Janela - Equipe em Férias":
             st.title("🏖️ Equipe em Gozo de Férias")
             st.caption("Acompanhamento de colaboradores temporariamente ausentes por férias.")
 
@@ -278,7 +277,7 @@ if verificar_senha():
                 st.dataframe(df_ferias_f[cols_ferias if cols_ferias else df_ferias_f.columns], use_container_width=True, hide_index=True)
 
         # --- MÓDULO 5: JANELA - AFASTADOS (INSS) ---
-        elif menu == "🏥 Janela - Afastados (INSS)":
+        elif st.session_state["modulo_ativo"] == "🏥 Janela - Afastados (INSS)":
             st.title("🏥 Colaboradores Afastados (INSS / Licença)")
             st.caption("Controle de afastamentos médicos e licenças temporárias.")
 
@@ -290,11 +289,11 @@ if verificar_senha():
                 st.dataframe(df_inss_f[cols_inss if cols_inss else df_inss_f.columns], use_container_width=True, hide_index=True)
 
         # --- MÓDULO 6: ESCALA INTELIGENTE DE FÉRIAS ---
-        elif menu == "📅 Escala Inteligente de Férias":
+        elif st.session_state["modulo_ativo"] == "📅 Escala Inteligente de Férias":
             ferias.renderizar_modulo_ferias(df)
 
         # --- MÓDULO 7: CADASTRO / EDIÇÃO ---
-        elif menu == "👥 Cadastrar / Editar Colaborador":
+        elif st.session_state["modulo_ativo"] == "👥 Cadastrar / Editar Colaborador":
             st.title("👥 Cadastrar ou Alterar Status de Colaborador")
             st.info("Abaixo está a base geral de colaboradores da Tropical para consulta e edições.")
             st.dataframe(df, use_container_width=True)
