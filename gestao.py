@@ -607,7 +607,7 @@ if verificar_senha():
         elif menu == "Cadastrar / Editar Colaborador":
             st.subheader("👥 Gestão do Cadastro de Colaboradores")
             
-            tab_cad_novo, tab_edit_colab = st.tabs(["➕ Cadastrar Novo Colaborador", "✏️ Editar / Atualizar Cadastro Existente"])
+            tab_cad_novo, tab_edit_colab = st.tabs(["➕ Cadastrar Novo Colaborador", "✏️ Editar / Excluir Cadastro Existente"])
             
             lista_status = [
                 "Ativo", "Férias", "Atestado", "Afastado", "INSS", 
@@ -648,7 +648,7 @@ if verificar_senha():
 
             with tab_edit_colab:
                 lista_todos_colabs = sorted(df['Funcionário'].dropna().unique())
-                colab_sel = st.selectbox("Selecione o Colaborador para Editar:", lista_todos_colabs)
+                colab_sel = st.selectbox("Selecione o Colaborador para Editar / Excluir:", lista_todos_colabs)
                 
                 if colab_sel:
                     idx_colab = df[df['Funcionário'] == colab_sel].index[0]
@@ -702,6 +702,21 @@ if verificar_senha():
                             salvar_dados(df)
                             st.success(f"Dados de **{e_nome}** atualizados com sucesso!")
                             st.rerun()
+
+                    # --- SEÇÃO DE EXCLUSÃO DEFINITIVA DO CADASTRO ---
+                    st.markdown("---")
+                    st.markdown("##### ⚠️ ZONA DE PERIGO: Exclusão Permanente")
+                    
+                    confirmar_exclusao = st.checkbox(f"Marque para confirmar a exclusão de **{dados_c['Funcionário']}**")
+                    if st.button("🗑️ Excluir Cadastro Definitivamente", type="primary"):
+                        if confirmar_exclusao:
+                            nome_removido = dados_c['Funcionário']
+                            df = df.drop(index=idx_colab).reset_index(drop=True)
+                            salvar_dados(df)
+                            st.error(f"Cadastro de **{nome_removido}** excluído com sucesso do banco de dados!")
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Marque a caixa de confirmação acima antes de clicar em excluir.")
 
         elif menu == "📥 Importar Nova Base":
             st.subheader("📥 Atualizar Base Geral de Colaboradores (.xlsx)")
