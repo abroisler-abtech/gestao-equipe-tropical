@@ -41,21 +41,21 @@ if verificar_senha():
     def carregar_dados():
         if os.path.exists(ARQUIVO_DADOS):
             df = pd.read_excel(ARQUIVO_DADOS)
-            
+
             # Padronização de Colunas da Tropical
             df.columns = df.columns.str.strip()
-            
+
             # Trata Data de Admissão
             col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), None)
             if col_adm:
                 df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce')
-            
+
             # Trata Status (Padrão: Ativo)
             if 'Status' not in df.columns:
                 df['Status'] = 'Ativo'
             else:
                 df['Status'] = df['Status'].fillna('Ativo')
-                
+
             return df
         return pd.DataFrame()
 
@@ -66,20 +66,20 @@ if verificar_senha():
     else:
         # --- FILTRAGEM AUTOMÁTICA DE ATIVOS X FÉRIAS ---
         hoje = date.today()
-        
+
         # Identifica quem está em gozo de férias (por Status)
         is_ferias = df['Status'].astype(str).str.lower().str.contains('férias|ferias')
-        
+
         df_ativos = df[~is_ferias].copy()
         df_em_ferias = df[is_ferias].copy()
 
         # --- BARRA LATERAL (NAVEGAÇÃO) ---
         st.sidebar.title("🌴 Gestão Tropical")
-        
+
         # Indicadores Rápidos no Menu Lateral
         st.sidebar.metric("👷 Operação Ativa", f"{len(df_ativos)} colab.")
         st.sidebar.metric("🏖️ Em Férias Hoje", f"{len(df_em_ferias)} colab.")
-        
+
         setores = ["Todos"] + list(df['Setor'].dropna().unique())
         setor_selecionado = st.sidebar.selectbox("Filtrar Setor:", setores)
 
@@ -124,7 +124,7 @@ if verificar_senha():
                 st.success("✅ Nenhum colaborador deste setor está em férias no momento. Quadro 100% ativo!")
             else:
                 st.warning(f"⚠️ Existem {len(df_ferias_f)} colaborador(es) afastado(s) em férias.")
-                
+
                 cols_ferias = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Inicio_Ferias', 'Fim_Ferias', 'Status'] if c in df_ferias_f.columns]
                 st.dataframe(df_ferias_f[cols_ferias if cols_ferias else df_ferias_f.columns], use_container_width=True, hide_index=True)
 
@@ -136,5 +136,5 @@ if verificar_senha():
         elif menu == "👥 Cadastrar / Editar Colaborador":
             st.title("👥 Cadastrar ou Alterar Status de Colaborador")
             st.info("Aqui você pode alterar as informações do quadro da Tropical.")
-            
+
             st.dataframe(df, use_container_width=True)
