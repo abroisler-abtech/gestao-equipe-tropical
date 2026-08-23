@@ -51,7 +51,13 @@ if verificar_senha():
             col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
             
             df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
-            df['dt_nasc'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce').dt.date if col_nasc in df.columns else None
+            
+            if col_nasc in df.columns:
+                df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
+                df['dt_nasc'] = df['dt_nasc_dt'].dt.date
+            else:
+                df['dt_nasc_dt'] = pd.NaT
+                df['dt_nasc'] = None
             
             if 'Vaga' in df.columns:
                 df['Vaga'] = df['Vaga'].astype(str).str.replace('.0', '', regex=False)
@@ -86,7 +92,7 @@ if verificar_senha():
             return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"])
 
     def salvar_dados(df_salvar):
-        cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
+        cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
         df_salvar[cols_salvar].to_excel(ARQUIVO_DADOS, index=False)
 
     def salvar_faltas(df_f):
@@ -118,14 +124,16 @@ if verificar_senha():
     st.title("👥 Gestão de Equipe Tropical")
 
     if not df.empty:
-        # BANNER DE ANIVERSARIANTES DO DIA
-        aniversariantes_hoje = df[df['dt_nasc'].apply(lambda d: d.month == hoje.month and d.day == hoje.day if pd.notnull(d) else False)]
-        if not aniversariantes_hoje.empty:
-            for _, colab in aniversariantes_hoje.iterrows():
+        if 'dt_nasc_dt' in df.columns:
+            aniversariantes_hoje = df[
+                (df['dt_nasc_dt'].dt.month == hoje.month) & 
+                (df['dt_nasc_dt'].dt.day == hoje.day)
+            ]
+            if not aniversariantes_hoje.empty:
                 st.balloons()
-                st.success(f"🎉 **HOJE É ANIVERSÁRIO DE:** {colab['Funcionário']} ({colab.get('Cargo', 'N/A')} - Setor: {colab.get('Setor', 'N/A')})! Parabéns!")
+                for _, colab in aniversariantes_hoje.iterrows():
+                    st.success(f"🎉 **HOJE É ANIVERSÁRIO DE:** {colab['Funcionário']} ({colab.get('Cargo', 'N/A')} - Setor: {colab.get('Setor', 'N/A')})! Parabéns! 🎂🎈")
 
-        # --- NAVEGAÇÃO E FILTRO DE SETOR ---
         st.sidebar.header("🔍 Filtros & Navegação")
         
         lista_setores = ["Todos os Setores"] + sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Todos os Setores"]
@@ -149,7 +157,6 @@ if verificar_senha():
             "📥 Importar Nova Base"
         ])
 
-        # Lógica de Experiência
         df_exp = df_filtrado.copy()
         df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
         df_exp['exp_90'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=90) if pd.notnull(d) else None)
@@ -159,15 +166,16 @@ if verificar_senha():
         df_apenas_exp = df_exp[(df_exp['Status'] == 'Ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
 
         if menu == "Dashboard & Alertas":
-            st.subheader(f"⚠️ Painel Geral de Alertas - {setor_selecionado}")
+            st.subheader("⚠️ Painel Geral")
             
-            vagas_abertas = df_filtrado[df_filtrado['Status'] == 'Desligado (Quebra Experiencia)']
+            # Captura todos os desligamentos para alerta de reposição de vaga
+            vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
             if not vagas_abertas.empty:
-                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem {len(vagas_abertas)} vaga(s) aberta(s) por quebra de contrato de experiência!")
+                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem {len(vagas_abertas)} vaga(s) aberta(s) por desligamento/término de contrato!")
                 cols_vaga = st.columns(min(len(vagas_abertas), 3))
                 for i, (_, v) in enumerate(vagas_abertas.iterrows()):
                     with cols_vaga[i % 3]:
-                        st.info(f"📌 **VAGA ABERTA:** {v.get('Cargo', 'N/A')}\n\n**Setor:** {v.get('Setor', 'N/A')}\n\n**Ex-colaborador:** {v.get('Funcionário', 'N/A')}")
+                        st.info(f"📌 **VAGA ABERTA:** {v.get('Cargo', 'N/A')}\n\n**Setor:** {v.get('Setor', 'N/A')}\n\n**Ex-colaborador:** {v.get('Funcionário', 'N/A')}\n\n**Motivo:** {v.get('Status', 'Desligado')}")
 
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             
@@ -200,7 +208,7 @@ if verificar_senha():
                 cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in faltas_mes.columns]
                 exibir_modal_detalhes(f"Ocorrências e Lançamentos de {hoje.strftime('%m/%Y')}", faltas_mes[cols_m] if not faltas_mes.empty else pd.DataFrame())
 
-            niver_mes = df_filtrado[df_filtrado['dt_nasc'].apply(lambda d: d.month == hoje.month if pd.notnull(d) else False)]
+            niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
             c6.metric("Aniversariantes", len(niver_mes))
             if c6.button("🔍 Ver Aniversár.", key="btn_niver_m"):
                 cols_m = [c for c in ['Nascimento', 'Funcionário', 'Setor', 'Cargo'] if c in niver_mes.columns]
@@ -242,11 +250,11 @@ if verificar_senha():
                             salvar_dados(df)
                             st.success(f"{r['Funcionário']} efetivado com sucesso!")
                             st.rerun()
-                        if b2.button("🚫 Quebra de Contrato", key=f"qb_45_{idx}"):
-                            df.at[idx, 'Status'] = 'Desligado (Quebra Experiencia)'
-                            df.at[idx, 'Decisao_Experiencia'] = 'Quebrado'
+                        if b2.button("🚫 Desligar (Término/Quebra)", key=f"qb_45_{idx}"):
+                            df.at[idx, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.at[idx, 'Decisao_Experiencia'] = 'Desligado'
                             salvar_dados(df)
-                            st.error("Contrato encerrado. Vaga liberada no quadro!")
+                            st.error("Contrato encerrado! Vaga liberada para reposição no painel de alertas.")
                             st.rerun()
 
                     for idx, r in alerta_90.iterrows():
@@ -257,11 +265,11 @@ if verificar_senha():
                             salvar_dados(df)
                             st.success(f"{r['Funcionário']} efetivado definitivamente!")
                             st.rerun()
-                        if b2.button("🚫 Quebra de Contrato", key=f"qb_90_{idx}"):
-                            df.at[idx, 'Status'] = 'Desligado (Quebra Experiencia)'
-                            df.at[idx, 'Decisao_Experiencia'] = 'Quebrado'
+                        if b2.button("🚫 Desligar (Término Contrato)", key=f"qb_90_{idx}"):
+                            df.at[idx, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.at[idx, 'Decisao_Experiencia'] = 'Desligado'
                             salvar_dados(df)
-                            st.error("Contrato encerrado. Vaga liberada no quadro!")
+                            st.error("Contrato encerrado! Vaga liberada para reposição no painel de alertas.")
                             st.rerun()
 
             with col_ferias_p:
@@ -297,7 +305,7 @@ if verificar_senha():
                                 st.rerun()
 
         elif menu == "Controle de Experiência (45/90 dias)":
-            st.subheader(f"📋 Colaboradores Atualmente em Período de Experiência - {setor_selecionado}")
+            st.subheader(f"📋 Colaboradores em Período de Experiência e Ações - {setor_selecionado}")
             if df_apenas_exp.empty:
                 st.success("Nenhum colaborador em período de experiência neste setor.")
             else:
@@ -309,8 +317,28 @@ if verificar_senha():
                 df_exibir['Faltam (90d)'] = df_apenas_exp['dias_para_90'].apply(lambda d: f"{d} dias")
                 st.dataframe(df_exibir, use_container_width=True)
                 
+                st.markdown("---")
+                st.subheader("⚙️ Ações Diretas no Período de Experiência")
+                for idx, r in df_apenas_exp.iterrows():
+                    col_info, col_ef, col_desl = st.columns([2, 1, 1])
+                    with col_info:
+                        st.write(f"👤 **{r['Funcionário']}** ({r.get('Cargo', 'N/A')} - {r.get('Setor', 'N/A')}) | Adm: {r.get('Admissão', 'N/A')}")
+                    with col_ef:
+                        if st.button("✅ Efetivar", key=f"btn_exp_ef_{idx}"):
+                            df.at[idx, 'Decisao_Experiencia'] = 'Efetivado'
+                            salvar_dados(df)
+                            st.success(f"{r['Funcionário']} efetivado!")
+                            st.rerun()
+                    with col_desl:
+                        if st.button("🚫 Desligar (Liberar Vaga)", key=f"btn_exp_desl_{idx}"):
+                            df.at[idx, 'Status'] = 'Desligado (Término de Experiência)'
+                            df.at[idx, 'Decisao_Experiencia'] = 'Desligado'
+                            salvar_dados(df)
+                            st.error(f"Colaborador desligado. Vaga liberada no Painel de Alertas!")
+                            st.rerun()
+
                 st.download_button(
-                    label="📥 Baixar Tabela em Excel",
+                    label="📥 Baixar Tabela de Experiência em Excel",
                     data=converter_df_para_excel(df_exibir),
                     file_name=f"experiencia_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -443,21 +471,28 @@ if verificar_senha():
         elif menu == "Aniversariantes do Mês":
             st.subheader(f"🎂 Aniversariantes do Mês - {setor_selecionado}")
             mes_sel = st.selectbox("Selecione o Mês", range(1, 13), index=hoje.month - 1)
-            df_niver = df_filtrado[df_filtrado['dt_nasc'].apply(lambda d: d.month == mes_sel if pd.notnull(d) else False)].copy()
-            if not df_niver.empty:
-                df_niver['dia'] = df_niver['dt_nasc'].apply(lambda d: d.day)
-                df_niver = df_niver.sort_values(by='dia')
-                for _, r in df_niver.iterrows():
-                    st.write(f"🎈 **Dia {r['dia']:02d}** - {r['Funcionário']} ({r.get('Cargo', 'N/A')} - Setor: {r.get('Setor', 'N/A')})")
+            if 'dt_nasc_dt' in df_filtrado.columns:
+                df_niver = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == mes_sel].copy()
+                if not df_niver.empty:
+                    df_niver['dia'] = df_niver['dt_nasc_dt'].dt.day
+                    df_niver = df_niver.sort_values(by='dia')
+                    for _, r in df_niver.iterrows():
+                        st.write(f"🎈 **Dia {r['dia']:02d}** - {r['Funcionário']} ({r.get('Cargo', 'N/A')} - Setor: {r.get('Setor', 'N/A')})")
+                else:
+                    st.info("Nenhum aniversariante neste setor/mês.")
             else:
-                st.info("Nenhum aniversariante neste setor/mês.")
+                st.info("Nenhuma data de nascimento válida cadastrada.")
 
         elif menu == "Cadastrar / Editar Colaborador":
             st.subheader("👥 Gestão do Cadastro de Colaboradores")
             
             tab_cad_novo, tab_edit_colab = st.tabs(["➕ Cadastrar Novo Colaborador", "✏️ Editar / Atualizar Cadastro Existente"])
             
-            lista_status = ["Ativo", "Férias", "Atestado", "Afastado", "INSS", "Desligado", "Desligado (Quebra Experiencia)"]
+            # Atualização da lista de status para englobar todas as modalidades de desligamento
+            lista_status = [
+                "Ativo", "Férias", "Atestado", "Afastado", "INSS", 
+                "Desligado", "Desligado (Término de Experiência)", "Desligado (Sem Justa Causa)", "Desligado (Pedido de Demissão)"
+            ]
 
             with tab_cad_novo:
                 with st.form("form_cad"):
