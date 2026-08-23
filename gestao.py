@@ -346,7 +346,7 @@ if verificar_senha():
                 )
 
         elif menu == "Escala Inteligente de Férias":
-            ferias.renderizar_modulo_ferias(df_filtrado)
+            ferias.renderizar_modulo_ferias(df)
 
         elif menu == "Faltas & Folgas":
             st.subheader(f"📌 Lançamento & Gestão de Faltas e Folgas - {setor_selecionado}")
