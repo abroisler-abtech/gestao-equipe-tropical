@@ -1,10 +1,15 @@
-import streamlit as st
+import io
+import os
+
+from datetime import date, datetime, timedelta
+import importlib  # <--- ADICIONADO AQUI
+import ferias
 import pandas as pd
 import plotly.express as px
-import ferias
-from datetime import datetime, date, timedelta
-import os
-import io
+import streamlit as st
+
+importlib.reload(ferias)  # <--- ADICIONADO AQUI PARA FORÇAR A ATUALIZAÇÃO
+
 
 st.set_page_config(page_title="Gestão de Equipe Tropical", page_icon="👥", layout="wide")
 
