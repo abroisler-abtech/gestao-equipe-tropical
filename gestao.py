@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import ferias
 from datetime import datetime, date, timedelta
 import os
 import io
@@ -19,11 +20,11 @@ def verificar_senha():
         senha_digitada = st.text_input("Digite a Senha de Acesso:", type="password")
         btn_entrar = st.button("🔑 Entrar no Sistema")
         
-        # Tenta buscar dos secrets (nuvem), se não existir usa a senha padrão local '1234'
+        # Tenta buscar dos secrets (nuvem), se não existir usa a senha padrão local '030711'
         try:
             senha_correta = st.secrets["SENHA_ACESSO"]
         except Exception:
-            senha_correta = "1234"
+            senha_correta = "030711"
         
         if btn_entrar:
             if senha_digitada == senha_correta:
@@ -124,7 +125,8 @@ if verificar_senha():
         menu = st.sidebar.radio("Navegação", [
             "Dashboard & Alertas", 
             "Controle de Experiência (45/90 dias)", 
-            "Gestão de Férias", 
+            "Gestão de Férias",
+            "Escala Inteligente de Férias",
             "Faltas & Folgas",
             "Aniversariantes do Mês", 
             "Cadastrar / Editar Colaborador",
@@ -340,6 +342,9 @@ if verificar_senha():
                     file_name=f"controle_ferias_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+
+        elif menu == "Escala Inteligente de Férias":
+            ferias.renderizar_modulo_ferias(df_filtrado)
 
         elif menu == "Faltas & Folgas":
             st.subheader(f"📌 Lançamento & Gestão de Faltas e Folgas - {setor_selecionado}")
