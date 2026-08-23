@@ -20,25 +20,30 @@ def alocar_ferias(
 ):
   df_sorted = df_input.copy()
 
-  # Busca flexível pelos nomes exatos da sua planilha Tropical
+  # Mapeamento dinâmico que reconhece 'Funcionário', 'Admissão' e 'dt_adm' da Tropical
   col_nome = next(
       (
           c
           for c in df_sorted.columns
-          if c.lower() in ["funcionário", "funcionario", "nome", "colaborador"]
+          if str(c).lower()
+          in ["funcionário", "funcionario", "nome", "colaborador"]
       ),
       None,
   )
   col_setor = next(
-      (c for c in df_sorted.columns if c.lower() in ["setor", "área", "area"]),
+      (
+          c
+          for c in df_sorted.columns
+          if str(c).lower() in ["setor", "área", "area"]
+      ),
       None,
   )
   col_admissao = next(
       (
           c
           for c in df_sorted.columns
-          if c.lower() in ["admissão", "admissao", "dt_adm"]
-          or "admiss" in c.lower()
+          if str(c).lower() in ["admissão", "admissao", "dt_adm"]
+          or "admiss" in str(c).lower()
       ),
       None,
   )
@@ -50,13 +55,13 @@ def alocar_ferias(
         " encontradas na planilha.",
     )
 
-  # Trata e converte as datas de admissão
+  # Converte e trata as datas
   df_sorted[col_admissao] = pd.to_datetime(
       df_sorted[col_admissao], dayfirst=True, errors="coerce"
   )
   df_sorted = df_sorted.dropna(subset=[col_admissao])
 
-  # Prioridade por tempo de casa (Elegível após 1 ano de registro)
+  # Elegibilidade após 1 ano de contratação
   df_sorted["data_elegivel"] = df_sorted[col_admissao].apply(
       lambda x: x + relativedelta(years=1)
   )
@@ -80,13 +85,13 @@ def alocar_ferias(
 
       dados_mes = ocupacao[chave_mes]
 
-      # Regra de Alta Temporada (Dezembro/Janeiro)
+      # Flexibilização de Dezembro e Janeiro
       eh_alta_temporada = flexibilizar_dez_jan and (mes == 12 or mes == 1)
       limite_geral = (
           cota_alta_temporada if eh_alta_temporada else cota_geral_padrao
       )
 
-      # Regra da Trava por Setor (Separação x Outros Setores)
+      # Trava por Setor (Separação x Demais)
       setor = str(row[col_setor]).strip()
       limite_setor = (
           cota_separacao
@@ -98,7 +103,7 @@ def alocar_ferias(
 
       qtd_setor = dados_mes["setores"].get(setor, 0)
 
-      # Aplica a trava dupla (Cota do Mês e Cota do Setor)
+      # Aplica cotas
       if dados_mes["total"] < limite_geral and qtd_setor < limite_setor:
         dados_mes["total"] += 1
         dados_mes["setores"][setor] = qtd_setor + 1
