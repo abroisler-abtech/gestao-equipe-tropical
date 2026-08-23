@@ -10,6 +10,21 @@ def ajustar_para_domingo(data):
   return data + datetime.timedelta(days=dias)
 
 
+def calcular_proxima_elegibilidade(dt_adm, dt_ult_ferias, limite_minimo_inicio):
+  """Calcula a próxima data de elegibilidade dentro do ciclo atual/futuro."""
+  if pd.isnull(dt_adm):
+    return None
+
+  data_base = dt_ult_ferias if pd.notnull(dt_ult_ferias) else dt_adm
+
+  # Avança o ciclo ano a ano até que a data de vencimento atinja ou supere o limite mínimo permitido
+  data_elegivel = data_base + relativedelta(years=1)
+  while data_elegivel < limite_minimo_inicio:
+    data_elegivel += relativedelta(years=1)
+
+  return data_elegivel
+
+
 def alocar_ferias(
     df_input,
     cota_geral_padrao,
@@ -17,10 +32,15 @@ def alocar_ferias(
     cota_outros_setores,
     flexibilizar_dez_jan,
     cota_alta_temporada,
+    dias_gap_rh=30,
 ):
   df_sorted = df_input.copy()
+  hoje = datetime.date.today()
 
-  # Mapeamento direto com fallback para o quadro da Tropical
+  # GAP MÍNIMO DO RH: O início das férias precisa ser de no mínimo X dias a partir de hoje
+  limite_minimo_inicio = hoje + datetime.timedelta(days=dias_gap_rh)
+
+  # Mapeamento de colunas
   col_nome = (
       "Funcionário"
       if "Funcionário" in df_sorted.columns
@@ -41,7 +61,6 @@ def alocar_ferias(
       )
   )
 
-  # Busca priorizando a coluna tratada 'dt_adm' criada pelo gestao.py
   if "dt_adm" in df_sorted.columns:
     col_admissao = "dt_adm"
   elif "Admissão" in df_sorted.columns:
@@ -51,23 +70,41 @@ def alocar_ferias(
         (c for c in df_sorted.columns if "admiss" in str(c).lower()), None
     )
 
+  col_ult_ferias = (
+      "dt_ult_ferias"
+      if "dt_ult_ferias" in df_sorted.columns
+      else ("Ultimas_Ferias" if "Ultimas_Ferias" in df_sorted.columns else None)
+  )
+
   if not (col_nome and col_setor and col_admissao):
     return (
         None,
         "As colunas necessárias ('Funcionário', 'Setor' e 'Admissão') não foram"
-        f" identificadas. Colunas disponíveis: {list(df_sorted.columns)}",
+        " identificadas.",
     )
 
-  # Converte data de admissão e remove inválidos
+  # Tratamento das datas
   df_sorted[col_admissao] = pd.to_datetime(
       df_sorted[col_admissao], errors="coerce"
-  )
+  ).dt.date
   df_sorted = df_sorted.dropna(subset=[col_admissao])
 
-  # Elegibilidade após 1 ano
-  df_sorted["data_elegivel"] = df_sorted[col_admissao].apply(
-      lambda x: x + relativedelta(years=1)
+  if col_ult_ferias:
+    df_sorted[col_ult_ferias] = pd.to_datetime(
+        df_sorted[col_ult_ferias], dayfirst=True, errors="coerce"
+    ).dt.date
+
+  # Calcula a elegibilidade respeitando o GAP do RH
+  df_sorted["data_elegivel"] = df_sorted.apply(
+      lambda r: calcular_proxima_elegibilidade(
+          r[col_admissao],
+          r[col_ult_ferias] if col_ult_ferias else None,
+          limite_minimo_inicio,
+      ),
+      axis=1,
   )
+
+  df_sorted = df_sorted.dropna(subset=["data_elegivel"])
   df_sorted = df_sorted.sort_values(by="data_elegivel")
 
   ocupacao = {}
@@ -75,8 +112,11 @@ def alocar_ferias(
 
   for _, row in df_sorted.iterrows():
     data_base = row["data_elegivel"]
-    ano = data_base.year
-    mes = data_base.month
+
+    # Início da alocação respeita a elegibilidade e o limite do Gap RH
+    inicio_busca = max(data_base, limite_minimo_inicio)
+    ano = inicio_busca.year
+    mes = inicio_busca.month
 
     alocado = False
     tentativas = 0
@@ -88,13 +128,11 @@ def alocar_ferias(
 
       dados_mes = ocupacao[chave_mes]
 
-      # Alta Temporada (Dezembro / Janeiro)
       eh_alta_temporada = flexibilizar_dez_jan and (mes == 12 or mes == 1)
       limite_geral = (
           cota_alta_temporada if eh_alta_temporada else cota_geral_padrao
       )
 
-      # Cota do Setor
       setor = str(row[col_setor]).strip()
       limite_setor = (
           cota_separacao
@@ -111,26 +149,26 @@ def alocar_ferias(
         dados_mes["setores"][setor] = qtd_setor + 1
 
         primeiro_dia_mes = datetime.date(ano, mes, 1)
-        if (
-            primeiro_dia_mes < data_base.date()
-            and ano == data_base.year
-            and mes == data_base.month
-        ):
-          data_inicio_sugerida = ajustar_para_domingo(data_base.date())
+
+        if primeiro_dia_mes < inicio_busca:
+          data_inicio_sugerida = ajustar_para_domingo(inicio_busca)
         else:
           data_inicio_sugerida = ajustar_para_domingo(primeiro_dia_mes)
 
+        # Se após o ajuste do domingo cair antes do Gap RH, avança para o próximo domingo
+        if data_inicio_sugerida < limite_minimo_inicio:
+          data_inicio_sugerida += datetime.timedelta(days=7)
+
         fim_ferias = data_inicio_sugerida + datetime.timedelta(days=30)
-        aviso_previo = data_inicio_sugerida - datetime.timedelta(days=40)
+        aviso_previo_limite = data_inicio_sugerida - datetime.timedelta(days=30)
 
         resultado.append({
             "Colaborador": row[col_nome],
             "Setor": setor,
-            "Elegível Em (1 Ano)": data_base.strftime("%d/%m/%Y"),
-            "Mês/Ano Alocado": f"{mes:02d}/{ano}",
+            "Admissão": row[col_admissao].strftime("%d/%m/%Y"),
             "Início Férias (Domingo)": data_inicio_sugerida.strftime("%d/%m/%Y"),
             "Retorno": fim_ferias.strftime("%d/%m/%Y"),
-            "Aviso Prévio (Limite)": aviso_previo.strftime("%d/%m/%Y"),
+            "Prazo Máx. Aviso RH": aviso_previo_limite.strftime("%d/%m/%Y"),
             "Status Cota Setor": f"{dados_mes['setores'][setor]}/{limite_setor}",
             "Status Cota Mês": f"{dados_mes['total']}/{limite_geral}",
         })
@@ -146,17 +184,25 @@ def alocar_ferias(
 
 
 def renderizar_modulo_ferias(df_base):
-  st.title("📅 Planejamento Inteligente de Férias")
+  st.title("📅 Planejamento Inteligente de Férias (Ciclo Atual)")
   st.caption(
-      "Regras: Início no Domingo (Escala Dom-Qui) | Cota Máxima: 2/mês | Trava"
-      " por Setor"
+      "Regras: Início no Domingo (Escala Dom-Qui) | Cota Máxima: 2/mês | Gap RH:"
+      " Min. 30 dias | Trava por Setor"
   )
 
   if df_base is None or df_base.empty:
     st.warning("⚠️ Nenhuma base de dados carregada para simulação.")
     return
 
-  st.sidebar.header("⚙️ Cotas de Férias")
+  st.sidebar.header("⚙️ Cotas & Prazos")
+  gap_rh = st.sidebar.number_input(
+      "Gap Mínimo RH (Dias)",
+      min_value=15,
+      max_value=60,
+      value=30,
+      step=5,
+      key="f_gap",
+  )
   cota_geral = st.sidebar.number_input(
       "Cota Geral (Mês)", min_value=1, value=2, key="f_cg"
   )
@@ -177,7 +223,7 @@ def renderizar_modulo_ferias(df_base):
 
   if st.button("🔄 Simular Escala de Férias", type="primary"):
     df_res, erro = alocar_ferias(
-        df_base, cota_geral, cota_sep, cota_outros, flexib, cota_alta
+        df_base, cota_geral, cota_sep, cota_outros, flexib, cota_alta, gap_rh
     )
 
     if erro:
@@ -200,7 +246,7 @@ def renderizar_modulo_ferias(df_base):
 
     st.subheader("📊 Ocupação das Cotas por Mês")
     resumo_mes = (
-        df_res.groupby(["Mês/Ano Alocado", "Setor"])
+        df_res.groupby(["Status Cota Mês", "Setor"])
         .size()
         .unstack(fill_value=0)
     )
