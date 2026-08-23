@@ -71,10 +71,15 @@ if verificar_senha():
     else:
         hoje = date.today()
 
-        # Identifica Ativos x Férias
-        is_ferias = df['Status'].astype(str).str.lower().str.contains('férias|ferias')
-        df_ativos = df[~is_ferias].copy()
+        # Classificação do Status
+        status_str = df['Status'].astype(str).str.lower()
+        is_ferias = status_str.str.contains('férias|ferias')
+        is_inss = status_str.str.contains('inss|afastado|licença|licenca')
+
+        # Operação Ativa: nem em férias nem no INSS
+        df_ativos = df[~is_ferias & ~is_inss].copy()
         df_em_ferias = df[is_ferias].copy()
+        df_inss = df[is_inss].copy()
 
         # --- CÁLCULO DOS CONTRATOS DE EXPERIÊNCIA (45 e 90 Dias) ---
         if 'dt_adm' in df_ativos.columns:
@@ -84,10 +89,10 @@ if verificar_senha():
         else:
             df_exp = pd.DataFrame()
 
-        # --- ANIVERSARIANTES DO DIA E MÊS ---
-        if 'dt_nascimento' in df_ativos.columns:
-            aniv_hoje = df_ativos[(df_ativos['dt_nascimento'].dt.day == hoje.day) & (df_ativos['dt_nascimento'].dt.month == hoje.month)]
-            df_aniversariantes = df_ativos[df_ativos['dt_nascimento'].dt.month == hoje.month].copy()
+        # --- ANIVERSARIANTES DO DIA E DO MÊS ---
+        if 'dt_nascimento' in df.columns:
+            aniv_hoje = df[(df['dt_nascimento'].dt.day == hoje.day) & (df['dt_nascimento'].dt.month == hoje.month)].copy()
+            df_aniversariantes = df[df['dt_nascimento'].dt.month == hoje.month].copy()
         else:
             aniv_hoje = pd.DataFrame()
             df_aniversariantes = pd.DataFrame()
@@ -97,6 +102,7 @@ if verificar_senha():
 
         st.sidebar.metric("👷 Operação Ativa", f"{len(df_ativos)} colab.")
         st.sidebar.metric("🏖️ Em Férias Hoje", f"{len(df_em_ferias)} colab.")
+        st.sidebar.metric("🏥 Afastados (INSS)", f"{len(df_inss)} colab.")
         if not df_exp.empty:
             st.sidebar.metric("⏳ Em Experiência", f"{len(df_exp)} colab.")
 
@@ -110,6 +116,7 @@ if verificar_senha():
                 "🎂 Aniversariantes do Mês",
                 "⏳ Contratos de Experiência (45/90d)",
                 "🏖️ Janela - Equipe em Férias",
+                "🏥 Janela - Afastados (INSS)",
                 "📅 Escala Inteligente de Férias",
                 "👥 Cadastrar / Editar Colaborador"
             ]
@@ -119,12 +126,14 @@ if verificar_senha():
         if setor_selecionado != "Todos":
             df_ativos_f = df_ativos[df_ativos['Setor'] == setor_selecionado]
             df_ferias_f = df_em_ferias[df_em_ferias['Setor'] == setor_selecionado]
+            df_inss_f = df_inss[df_inss['Setor'] == setor_selecionado]
             df_exp_f = df_exp[df_exp['Setor'] == setor_selecionado] if not df_exp.empty else pd.DataFrame()
             df_aniv_f = df_aniversariantes[df_aniversariantes['Setor'] == setor_selecionado] if not df_aniversariantes.empty else pd.DataFrame()
             aniv_hoje_f = aniv_hoje[aniv_hoje['Setor'] == setor_selecionado] if not aniv_hoje.empty else pd.DataFrame()
         else:
             df_ativos_f = df_ativos
             df_ferias_f = df_em_ferias
+            df_inss_f = df_inss
             df_exp_f = df_exp
             df_aniv_f = df_aniversariantes
             aniv_hoje_f = aniv_hoje
@@ -133,18 +142,19 @@ if verificar_senha():
         if menu == "🏠 Dashboard Principal":
             st.title("🌴 Dashboard Gestão de Equipe - Tropical")
 
-            # BANNER DE ANIVERSARIANTES DO DIA
+            # BANNER DESTACADO DE ANIVERSARIANTES DO DIA
             if not aniv_hoje_f.empty:
+                st.balloons()
                 for _, row in aniv_hoje_f.iterrows():
-                    st.balloons()
                     st.success(f"🎉 **HOJE É DIA DE FESTA!** Parabéns ao colaborador **{row['Funcionário']}** ({row['Setor']}) pelo seu aniversário hoje! 🎂🎈")
 
             # CARDS DE VISÃO GERAL
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             col1.metric("Quadro Total", len(df))
             col2.metric("👷 Ativos na Operação", len(df_ativos_f))
-            col3.metric("🏖️ Em Férias Hoje", len(df_ferias_f))
-            col4.metric("⏳ Em Experiência", len(df_exp_f))
+            col3.metric("🏖️ Em Férias", len(df_ferias_f))
+            col4.metric("🏥 INSS / Afastados", len(df_inss_f))
+            col5.metric("⏳ Em Experiência", len(df_exp_f))
 
             st.markdown("---")
 
@@ -156,6 +166,9 @@ if verificar_senha():
                 ]
                 if not vencendo_7d.empty:
                     st.warning(f"⚠️ **Alerta RH:** Existem {len(vencendo_7d)} contrato(s) de experiência atingindo prazo nos próximos 7 dias!")
+
+            if not df_inss_f.empty:
+                st.info(f"ℹ️ **Informação:** {len(df_inss_f)} colaborador(es) estão temporariamente afastados via INSS/Licença.")
 
             # GRÁFICOS ESTATÍSTICOS
             g_col1, g_col2 = st.columns(2)
@@ -209,7 +222,7 @@ if verificar_senha():
         # --- MÓDULO 4: JANELA - EQUIPE EM FÉRIAS ---
         elif menu == "🏖️ Janela - Equipe em Férias":
             st.title("🏖️ Equipe em Gozo de Férias")
-            st.caption("Acompanhamento de colaboradores temporariamente ausentes da operação.")
+            st.caption("Acompanhamento de colaboradores temporariamente ausentes por férias.")
 
             if df_ferias_f.empty:
                 st.success("✅ Nenhum colaborador deste setor está em férias no momento. Quadro 100% ativo!")
@@ -218,11 +231,23 @@ if verificar_senha():
                 cols_ferias = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Inicio_Ferias', 'Fim_Ferias', 'Status'] if c in df_ferias_f.columns]
                 st.dataframe(df_ferias_f[cols_ferias if cols_ferias else df_ferias_f.columns], use_container_width=True, hide_index=True)
 
-        # --- MÓDULO 5: ESCALA INTELIGENTE DE FÉRIAS ---
+        # --- MÓDULO 5: JANELA - AFASTADOS (INSS) ---
+        elif menu == "🏥 Janela - Afastados (INSS)":
+            st.title("🏥 Colaboradores Afastados (INSS / Licença)")
+            st.caption("Controle de afastamentos médicos e licenças temporárias.")
+
+            if df_inss_f.empty:
+                st.success("✅ Nenhum colaborador deste setor está afastado pelo INSS no momento.")
+            else:
+                st.info(f"📋 Registrados {len(df_inss_f)} colaborador(es) em situação de INSS / Afastamento.")
+                cols_inss = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Admissão', 'Status'] if c in df_inss_f.columns]
+                st.dataframe(df_inss_f[cols_inss if cols_inss else df_inss_f.columns], use_container_width=True, hide_index=True)
+
+        # --- MÓDULO 6: ESCALA INTELIGENTE DE FÉRIAS ---
         elif menu == "📅 Escala Inteligente de Férias":
             ferias.renderizar_modulo_ferias(df)
 
-        # --- MÓDULO 6: CADASTRO / EDIÇÃO ---
+        # --- MÓDULO 7: CADASTRO / EDIÇÃO ---
         elif menu == "👥 Cadastrar / Editar Colaborador":
             st.title("👥 Cadastrar ou Alterar Status de Colaborador")
             st.info("Abaixo está a base geral de colaboradores da Tropical para consulta e edições.")
