@@ -80,16 +80,16 @@ if verificar_senha():
         if 'dt_adm' in df_ativos.columns:
             df_ativos['Venc_45_dias'] = df_ativos['dt_adm'].dt.date + timedelta(days=45)
             df_ativos['Venc_90_dias'] = df_ativos['dt_adm'].dt.date + timedelta(days=90)
-            
-            # Filtra quem está no período de experiência (admitidos há menos de 90 dias)
             df_exp = df_ativos[df_ativos['dt_adm'].dt.date >= (hoje - timedelta(days=90))].copy()
         else:
             df_exp = pd.DataFrame()
 
-        # --- ANIVERSARIANTES DO MÊS ---
+        # --- ANIVERSARIANTES DO DIA E MÊS ---
         if 'dt_nascimento' in df_ativos.columns:
+            aniv_hoje = df_ativos[(df_ativos['dt_nascimento'].dt.day == hoje.day) & (df_ativos['dt_nascimento'].dt.month == hoje.month)]
             df_aniversariantes = df_ativos[df_ativos['dt_nascimento'].dt.month == hoje.month].copy()
         else:
+            aniv_hoje = pd.DataFrame()
             df_aniversariantes = pd.DataFrame()
 
         # --- BARRA LATERAL (NAVEGAÇÃO) ---
@@ -106,7 +106,7 @@ if verificar_senha():
         menu = st.sidebar.radio(
             "Selecione o Módulo:",
             [
-                "📊 Painel Geral de Ativos",
+                "🏠 Dashboard Principal",
                 "🎂 Aniversariantes do Mês",
                 "⏳ Contratos de Experiência (45/90d)",
                 "🏖️ Janela - Equipe em Férias",
@@ -121,34 +121,54 @@ if verificar_senha():
             df_ferias_f = df_em_ferias[df_em_ferias['Setor'] == setor_selecionado]
             df_exp_f = df_exp[df_exp['Setor'] == setor_selecionado] if not df_exp.empty else pd.DataFrame()
             df_aniv_f = df_aniversariantes[df_aniversariantes['Setor'] == setor_selecionado] if not df_aniversariantes.empty else pd.DataFrame()
+            aniv_hoje_f = aniv_hoje[aniv_hoje['Setor'] == setor_selecionado] if not aniv_hoje.empty else pd.DataFrame()
         else:
             df_ativos_f = df_ativos
             df_ferias_f = df_em_ferias
             df_exp_f = df_exp
             df_aniv_f = df_aniversariantes
+            aniv_hoje_f = aniv_hoje
 
-        # --- MÓDULO 1: PAINEL GERAL DE ATIVOS ---
-        if menu == "📊 Painel Geral de Ativos":
-            st.title("📊 Painel Geral de Quadro Ativo")
-            st.caption("Apenas colaboradores operacionais em atividade no momento.")
+        # --- MÓDULO 1: DASHBOARD PRINCIPAL ---
+        if menu == "🏠 Dashboard Principal":
+            st.title("🌴 Dashboard Gestão de Equipe - Tropical")
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total em Operação", len(df_ativos_f))
-            col2.metric("Setor de Separação", len(df_ativos_f[df_ativos_f['Setor'].str.lower().str.contains('separa', na=False)]))
-            col3.metric("Demais Setores", len(df_ativos_f[~df_ativos_f['Setor'].str.lower().str.contains('separa', na=False)]))
+            # BANNER DE ANIVERSARIANTES DO DIA
+            if not aniv_hoje_f.empty:
+                for _, row in aniv_hoje_f.iterrows():
+                    st.balloons()
+                    st.success(f"🎉 **HOJE É DIA DE FESTA!** Parabéns ao colaborador **{row['Funcionário']}** ({row['Setor']}) pelo seu aniversário hoje! 🎂🎈")
 
-            # Alerta Rápido de Contratos Próximos do Vencimento
+            # CARDS DE VISÃO GERAL
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Quadro Total", len(df))
+            col2.metric("👷 Ativos na Operação", len(df_ativos_f))
+            col3.metric("🏖️ Em Férias Hoje", len(df_ferias_f))
+            col4.metric("⏳ Em Experiência", len(df_exp_f))
+
+            st.markdown("---")
+
+            # ALERTAS OPERACIONAIS
             if not df_exp_f.empty:
                 vencendo_7d = df_exp_f[
                     ((df_exp_f['Venc_45_dias'] >= hoje) & (df_exp_f['Venc_45_dias'] <= hoje + timedelta(days=7))) |
                     ((df_exp_f['Venc_90_dias'] >= hoje) & (df_exp_f['Venc_90_dias'] <= hoje + timedelta(days=7)))
                 ]
                 if not vencendo_7d.empty:
-                    st.warning(f"⚠️ **Atenção:** Existem {len(vencendo_7d)} contrato(s) de experiência vencendo nos próximos 7 dias!")
+                    st.warning(f"⚠️ **Alerta RH:** Existem {len(vencendo_7d)} contrato(s) de experiência atingindo prazo nos próximos 7 dias!")
 
-            st.subheader("📋 Lista de Colaboradores Ativos")
-            cols_exibir = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Admissão', 'Status'] if c in df_ativos_f.columns]
-            st.dataframe(df_ativos_f[cols_exibir], use_container_width=True, hide_index=True)
+            # GRÁFICOS ESTATÍSTICOS
+            g_col1, g_col2 = st.columns(2)
+
+            with g_col1:
+                st.subheader("📊 Distribuição da Equipe por Setor")
+                fig_setor = px.pie(df_ativos_f, names='Setor', hole=0.4, color_discrete_sequence=px.colors.qualitative.Set2)
+                st.plotly_chart(fig_setor, use_container_width=True)
+
+            with g_col2:
+                st.subheader("📈 Status do Quadro de Colaboradores")
+                fig_status = px.bar(df, x='Setor', color='Status', barmode='group', color_discrete_sequence=px.colors.qualitative.Pastel)
+                st.plotly_chart(fig_status, use_container_width=True)
 
         # --- MÓDULO 2: ANIVERSARIANTES DO MÊS ---
         elif menu == "🎂 Aniversariantes do Mês":
@@ -159,8 +179,6 @@ if verificar_senha():
                 st.info("Nenhum aniversariante encontrado para o mês atual no setor selecionado.")
             else:
                 cols_aniv = [c for c in ['Funcionário', 'Setor', 'Cargo', 'dt_nascimento'] if c in df_aniv_f.columns]
-                
-                # Ordena pelo dia do aniversário
                 df_aniv_exibir = df_aniv_f[cols_aniv].copy()
                 if 'dt_nascimento' in df_aniv_exibir.columns:
                     df_aniv_exibir['Dia'] = df_aniv_exibir['dt_nascimento'].dt.day
@@ -207,5 +225,5 @@ if verificar_senha():
         # --- MÓDULO 6: CADASTRO / EDIÇÃO ---
         elif menu == "👥 Cadastrar / Editar Colaborador":
             st.title("👥 Cadastrar ou Alterar Status de Colaborador")
-            st.info("Aqui você pode alterar as informações do quadro da Tropical.")
+            st.info("Abaixo está a base geral de colaboradores da Tropical para consulta e edições.")
             st.dataframe(df, use_container_width=True)
