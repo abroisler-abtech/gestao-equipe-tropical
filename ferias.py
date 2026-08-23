@@ -88,7 +88,6 @@ def renderizar_modulo_ferias(df):
     if 'Fracionamento' not in df.columns:
         df['Fracionamento'] = '30 Dias Corridos'
 
-    # Ordena por urgência do limite concessivo
     lista_temp = []
     for idx, r in df_ativos.iterrows():
         adm = r.get('dt_adm')
@@ -111,7 +110,6 @@ def renderizar_modulo_ferias(df):
 
     lista_temp = sorted(lista_temp, key=lambda x: x['limite_conc'])
 
-    # Ocupação por setor e mês/ano { (setor, ano_mes): qtd }
     ocupacao_setor_mes = {}
     lista_escala = []
     alterou_dados = False
@@ -125,11 +123,9 @@ def renderizar_modulo_ferias(df):
         dias_restantes = item['dias_restantes']
         setor = r.get('Setor', 'Geral')
 
-        # Tenta agendar 60 dias antes do limite ou a partir de hoje + 30 dias (Aviso RH)
         data_sugerida_inicial = max(hoje + timedelta(days=30), limite_conc - timedelta(days=60))
         data_inicio = ajustar_para_domingo(data_sugerida_inicial)
 
-        # Procura o próximo mês viável respeitando o limite de 2 pessoas/mês por setor
         while True:
             chave_mes = (setor, data_inicio.strftime("%Y-%m"))
             qtd_agendada = ocupacao_setor_mes.get(chave_mes, 0)
@@ -140,7 +136,6 @@ def renderizar_modulo_ferias(df):
                 ocupacao_setor_mes[chave_mes] = qtd_agendada + 1
                 break
             else:
-                # Se excedeu a capacidade do setor, joga para o próximo mês
                 data_inicio = ajustar_para_domingo(data_inicio + timedelta(days=28))
 
         data_aviso_rh = data_inicio - timedelta(days=30)
@@ -177,7 +172,7 @@ def renderizar_modulo_ferias(df):
                 df.at[idx, 'Aprovacao_RH'] = nova_aprov
                 alterou_dados = True
 
-        st.markdown("<hr style='margin: 5px 0 15px 0; border-color: #f0f2f6;'>", unsafe_allow_text=True)
+        st.divider()
 
         lista_escala.append({
             "Matrícula": r.get('Matricula', 'N/A'),
