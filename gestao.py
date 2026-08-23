@@ -11,6 +11,61 @@ importlib.reload(ferias)
 
 st.set_page_config(page_title="Gestão de Equipe Tropical", page_icon="👥", layout="wide")
 
+# --- GERADOR DE RELATÓRIOS EM PDF PARA IMPRESSÃO ---
+def gerar_pdf_simples(titulo, colunas, dados):
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elements = []
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#1E3A8A"),
+        spaceAfter=15,
+        alignment=0
+    )
+    
+    # Título do Relatório com data de emissão
+    hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
+    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora</font>", styles['Normal']))
+    elements.append(Spacer(1, 15))
+
+    # Formatação dos dados em tabela
+    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
+    for linha in dados:
+        row_data = []
+        for item in linha:
+            val_str = str(item) if pd.notnull(item) else ""
+            row_data.append(Paragraph(val_str, styles['Normal']))
+        table_data.append(row_data)
+
+    t = Table(table_data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#E2E8F0")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#1E293B")),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    
+    elements.append(t)
+    doc.build(elements)
+    pdf_out = buffer.getvalue()
+    buffer.close()
+    return pdf_out
+
 # --- SISTEMA DE AUTENTICAÇÃO POR SENHA SEGURA ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
@@ -168,7 +223,6 @@ if verificar_senha():
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral")
             
-            # Captura todos os desligamentos para alerta de reposição de vaga
             vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
             if not vagas_abertas.empty:
                 st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem {len(vagas_abertas)} vaga(s) aberta(s) por desligamento/término de contrato!")
@@ -337,12 +391,26 @@ if verificar_senha():
                             st.error(f"Colaborador desligado. Vaga liberada no Painel de Alertas!")
                             st.rerun()
 
-                st.download_button(
-                    label="📥 Baixar Tabela de Experiência em Excel",
-                    data=converter_df_para_excel(df_exibir),
-                    file_name=f"experiencia_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                c_down1, c_down2 = st.columns(2)
+                with c_down1:
+                    st.download_button(
+                        label="📥 Baixar em Excel (.xlsx)",
+                        data=converter_df_para_excel(df_exibir),
+                        file_name=f"experiencia_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                with c_down2:
+                    pdf_bytes = gerar_pdf_simples(
+                        f"Relatório de Controle de Experiência - Setor: {setor_selecionado}",
+                        list(df_exibir.columns),
+                        df_exibir.values.tolist()
+                    )
+                    st.download_button(
+                        label="🖨️ Baixar PDF para Impressão",
+                        data=pdf_bytes,
+                        file_name=f"experiencia_{setor_selecionado.lower().replace(' ', '_')}.pdf",
+                        mime="application/pdf"
+                    )
 
         elif menu == "Escala Inteligente de Férias":
             ferias.renderizar_modulo_ferias(df)
@@ -384,12 +452,26 @@ if verificar_senha():
             st.dataframe(df_ferias_exibir, use_container_width=True)
             
             if not df_ferias_exibir.empty:
-                st.download_button(
-                    label="📥 Baixar Controle de Férias em Excel",
-                    data=converter_df_para_excel(df_ferias_exibir),
-                    file_name=f"controle_ferias_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                c_down1, c_down2 = st.columns(2)
+                with c_down1:
+                    st.download_button(
+                        label="📥 Baixar Controle em Excel (.xlsx)",
+                        data=converter_df_para_excel(df_ferias_exibir),
+                        file_name=f"controle_ferias_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                with c_down2:
+                    pdf_bytes = gerar_pdf_simples(
+                        f"Relatório de Controle de Férias - Setor: {setor_selecionado}",
+                        list(df_ferias_exibir.columns),
+                        df_ferias_exibir.values.tolist()
+                    )
+                    st.download_button(
+                        label="🖨️ Baixar PDF para Impressão",
+                        data=pdf_bytes,
+                        file_name=f"controle_ferias_{setor_selecionado.lower().replace(' ', '_')}.pdf",
+                        mime="application/pdf"
+                    )
 
         elif menu == "Faltas & Folgas":
             st.subheader(f"📌 Lançamento & Gestão de Faltas e Folgas - {setor_selecionado}")
@@ -461,12 +543,26 @@ if verificar_senha():
                     df_exibir_f = df_faltas_filtrado[cols_f_pres].copy()
                     st.dataframe(df_exibir_f, use_container_width=True)
                     
-                    st.download_button(
-                        label="📥 Baixar Histórico de Ocorrências em Excel",
-                        data=converter_df_para_excel(df_exibir_f),
-                        file_name=f"historico_ausencias_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    c_down1, c_down2 = st.columns(2)
+                    with c_down1:
+                        st.download_button(
+                            label="📥 Baixar em Excel (.xlsx)",
+                            data=converter_df_para_excel(df_exibir_f),
+                            file_name=f"historico_ausencias_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    with c_down2:
+                        pdf_bytes = gerar_pdf_simples(
+                            f"Relatório de Ocorrências e Ausências - Setor: {setor_selecionado}",
+                            list(df_exibir_f.columns),
+                            df_exibir_f.values.tolist()
+                        )
+                        st.download_button(
+                            label="🖨️ Baixar PDF para Impressão",
+                            data=pdf_bytes,
+                            file_name=f"historico_ausencias_{setor_selecionado.lower().replace(' ', '_')}.pdf",
+                            mime="application/pdf"
+                        )
 
         elif menu == "Aniversariantes do Mês":
             st.subheader(f"🎂 Aniversariantes do Mês - {setor_selecionado}")
@@ -488,7 +584,6 @@ if verificar_senha():
             
             tab_cad_novo, tab_edit_colab = st.tabs(["➕ Cadastrar Novo Colaborador", "✏️ Editar / Atualizar Cadastro Existente"])
             
-            # Atualização da lista de status para englobar todas as modalidades de desligamento
             lista_status = [
                 "Ativo", "Férias", "Atestado", "Afastado", "INSS", 
                 "Desligado", "Desligado (Término de Experiência)", "Desligado (Sem Justa Causa)", "Desligado (Pedido de Demissão)"
