@@ -20,7 +20,7 @@ def alocar_ferias(
 ):
   df_sorted = df_input.copy()
 
-  # Mapeamento dinâmico que reconhece 'Funcionário', 'Admissão' e 'dt_adm' da Tropical
+  # Mapeamento dinâmico que reconhece 'Funcionário', 'Admissão' e 'dt_adm'
   col_nome = next(
       (
           c
