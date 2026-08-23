@@ -51,26 +51,26 @@ if verificar_senha():
             df = pd.read_excel(ARQUIVO_DADOS)
             df.columns = [str(c).strip() for c in df.columns]
 
-            # Mapeamento Flexível do Nome do Colaborador
+            # Mapeamento do Nome do Colaborador
             col_nome = next((c for c in df.columns if 'func' in c.lower() or 'nome' in c.lower()), 'Funcionário')
             if col_nome in df.columns and col_nome != 'Funcionário':
                 df['Funcionário'] = df[col_nome]
 
-            # Mapeamento Flexível da Admissão
+            # Mapeamento da Admissão
             col_adm = next((c for c in df.columns if 'admiss' in c.lower() or 'dt_adm' in c.lower()), None)
             if col_adm:
                 df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce')
             else:
                 df['dt_adm'] = pd.NaT
 
-            # Mapeamento Flexível do Nascimento
+            # Mapeamento do Nascimento
             col_nasc = next((c for c in df.columns if 'nasc' in c.lower() or 'anivers' in c.lower()), None)
             if col_nasc:
                 df['dt_nascimento'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
             else:
                 df['dt_nascimento'] = pd.NaT
 
-            # Mapeamento Flexível do Status
+            # Mapeamento do Status
             col_status = next((c for c in df.columns if 'status' in c.lower()), None)
             if col_status and col_status != 'Status':
                 df['Status'] = df[col_status]
@@ -79,7 +79,7 @@ if verificar_senha():
             
             df['Status'] = df['Status'].fillna('Ativo').astype(str)
 
-            # Mapeamento Flexível do Setor
+            # Mapeamento do Setor
             if 'Setor' not in df.columns:
                 col_set = next((c for c in df.columns if 'setor' in c.lower()), None)
                 df['Setor'] = df[col_set] if col_set else 'Geral'
@@ -153,11 +153,11 @@ if verificar_senha():
 
         opcoes_menu = [
             "🏠 Dashboard Principal",
+            "🏥 Janela - Afastados (INSS)",
+            "🏖️ Janela - Equipe em Férias",
             "📋 Ocorrências (Faltas/Atestados/Folgas)",
             "🎂 Aniversariantes do Mês",
             "⏳ Contratos de Experiência (45/90d)",
-            "🏖️ Janela - Equipe em Férias",
-            "🏥 Janela - Afastados (INSS)",
             "📅 Escala Inteligente de Férias",
             "👥 Cadastrar / Editar Colaborador"
         ]
@@ -206,6 +206,9 @@ if verificar_senha():
 
             st.info(f"🎂 **Aniversariantes do Mês ({hoje.strftime('%m/%Y')}):** {len(df_aniv_f)} colaborador(es) comemorando aniversário este mês.")
 
+            if not df_inss_f.empty:
+                st.warning(f"🏥 **Atenção:** Existem {len(df_inss_f)} colaborador(es) afastado(s) pelo INSS/Licença no setor **{setor_selecionado}**. Acesse o menu lateral '🏥 Janela - Afastados (INSS)' para ver a lista.")
+
             if not df_exp_f.empty:
                 vencendo_7d = df_exp_f[
                     ((df_exp_f['Venc_45_dias'] >= hoje) & (df_exp_f['Venc_45_dias'] <= hoje + timedelta(days=7))) |
@@ -225,7 +228,44 @@ if verificar_senha():
                 fig_status = px.bar(df_f, x='Setor', color='Status', barmode='group', color_discrete_sequence=px.colors.qualitative.Pastel)
                 st.plotly_chart(fig_status, use_container_width=True)
 
-        # --- MÓDULO 2: OCORRÊNCIAS ---
+        # --- MÓDULO 2: JANELA DO INSS (RESTAURADA E GARANTIDA) ---
+        elif menu == "🏥 Janela - Afastados (INSS)":
+            st.title("🏥 Colaboradores Afastados (INSS / Licença)")
+            st.caption(f"Visualizando colaboradores com status 'INSS' ou 'Afastado' no setor {setor_selecionado}.")
+
+            if df_inss_f.empty:
+                st.success("✅ Nenhum colaborador deste setor está em situação de afastamento pelo INSS no momento.")
+            else:
+                st.warning(f"📋 Encontrado(s) {len(df_inss_f)} colaborador(es) em situação de INSS / Afastamento:")
+                
+                # Exibe a tabela completa de afastados com todas as colunas
+                st.dataframe(df_inss_f, use_container_width=True, hide_index=True)
+
+                st.download_button(
+                    label="📥 Exportar Lista do INSS em Excel (.xlsx)",
+                    data=converter_para_excel(df_inss_f, "Afastados_INSS"),
+                    file_name=f"afastados_inss_tropical_{hoje.strftime('%d_%m_%Y')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+        # --- MÓDULO 3: JANELA DE FÉRIAS ---
+        elif menu == "🏖️ Janela - Equipe em Férias":
+            st.title("🏖️ Equipe em Gozo de Férias")
+            st.caption(f"Visualizando colaboradores com status 'Férias' no setor {setor_selecionado}.")
+
+            if df_ferias_f.empty:
+                st.success("✅ Nenhum colaborador deste setor está em férias no momento.")
+            else:
+                st.warning(f"🏖️ Encontrado(s) {len(df_ferias_f)} colaborador(es) em férias:")
+                st.dataframe(df_ferias_f, use_container_width=True, hide_index=True)
+                st.download_button(
+                    label="📥 Exportar Férias em Excel (.xlsx)",
+                    data=converter_para_excel(df_ferias_f, "Ferias"),
+                    file_name=f"equipe_em_ferias_{hoje.strftime('%d_%m_%Y')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+        # --- MÓDULO 4: OCORRÊNCIAS ---
         elif menu == "📋 Ocorrências (Faltas/Atestados/Folgas)":
             st.title("📋 Controle de Ocorrências e Frequência")
             tab_reg, tab_hist = st.tabs(["➕ Registrar Nova Ocorrência", "📜 Histórico de Ocorrências"])
@@ -274,7 +314,7 @@ if verificar_senha():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
-        # --- MÓDULO 3: ANIVERSARIANTES ---
+        # --- MÓDULO 5: ANIVERSARIANTES ---
         elif menu == "🎂 Aniversariantes do Mês":
             st.title("🎂 Aniversariantes do Mês Vigente")
             if df_aniv_f.empty:
@@ -291,7 +331,7 @@ if verificar_senha():
                 st.dataframe(df_aniv_exibir, use_container_width=True, hide_index=True)
                 st.download_button("📥 Exportar Aniversariantes (.xlsx)", converter_para_excel(df_aniv_exibir, "Aniversariantes"), file_name=f"aniversariantes_{hoje.strftime('%m_%Y')}.xlsx")
 
-        # --- MÓDULO 4: EXPERIÊNCIA ---
+        # --- MÓDULO 6: EXPERIÊNCIA ---
         elif menu == "⏳ Contratos de Experiência (45/90d)":
             st.title("⏳ Controle de Contratos de Experiência")
             if df_exp_f.empty:
@@ -304,26 +344,6 @@ if verificar_senha():
                     df_exp_exibir = df_exp_exibir.drop(columns=['dt_adm'])
                 st.dataframe(df_exp_exibir, use_container_width=True, hide_index=True)
                 st.download_button("📥 Exportar Experiência (.xlsx)", converter_para_excel(df_exp_exibir, "Experiencia"), file_name=f"experiencia_{hoje.strftime('%d_%m_%Y')}.xlsx")
-
-        # --- MÓDULO 5: FÉRIAS ---
-        elif menu == "🏖️ Janela - Equipe em Férias":
-            st.title("🏖️ Equipe em Gozo de Férias")
-            if df_ferias_f.empty:
-                st.success("✅ Nenhum colaborador em férias no momento.")
-            else:
-                cols_f = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Status'] if c in df_ferias_f.columns]
-                st.dataframe(df_ferias_f[cols_f], use_container_width=True, hide_index=True)
-                st.download_button("📥 Exportar Férias (.xlsx)", converter_para_excel(df_ferias_f, "Ferias"), file_name=f"ferias_{hoje.strftime('%d_%m_%Y')}.xlsx")
-
-        # --- MÓDULO 6: INSS ---
-        elif menu == "🏥 Janela - Afastados (INSS)":
-            st.title("🏥 Colaboradores Afastados (INSS / Licença)")
-            if df_inss_f.empty:
-                st.success("✅ Nenhum colaborador afastado no momento.")
-            else:
-                cols_i = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Status'] if c in df_inss_f.columns]
-                st.dataframe(df_inss_f[cols_i], use_container_width=True, hide_index=True)
-                st.download_button("📥 Exportar INSS (.xlsx)", converter_para_excel(df_inss_f, "INSS"), file_name=f"inss_{hoje.strftime('%d_%m_%Y')}.xlsx")
 
         # --- MÓDULO 7: ESCALA INTELIGENTE DE FÉRIAS ---
         elif menu == "📅 Escala Inteligente de Férias":
