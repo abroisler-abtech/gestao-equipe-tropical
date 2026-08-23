@@ -20,13 +20,21 @@ def alocar_ferias(
 ):
   df_sorted = df_input.copy()
 
-  # Mapeamento dinâmico que reconhece 'Funcionário', 'Admissão' e 'dt_adm'
+  # Busca ultra flexível de colunas
+  cols = [str(c) for c in df_sorted.columns]
+
   col_nome = next(
       (
           c
           for c in df_sorted.columns
-          if str(c).lower()
-          in ["funcionário", "funcionario", "nome", "colaborador"]
+          if str(c).strip().lower()
+          in [
+              "funcionário",
+              "funcionario",
+              "nome",
+              "colaborador",
+              "nome completo",
+          ]
       ),
       None,
   )
@@ -34,7 +42,7 @@ def alocar_ferias(
       (
           c
           for c in df_sorted.columns
-          if str(c).lower() in ["setor", "área", "area"]
+          if str(c).strip().lower() in ["setor", "área", "area", "departamento"]
       ),
       None,
   )
@@ -42,7 +50,8 @@ def alocar_ferias(
       (
           c
           for c in df_sorted.columns
-          if str(c).lower() in ["admissão", "admissao", "dt_adm"]
+          if str(c).strip().lower()
+          in ["admissão", "admissao", "dt_adm", "data de admissão"]
           or "admiss" in str(c).lower()
       ),
       None,
@@ -52,7 +61,7 @@ def alocar_ferias(
     return (
         None,
         "As colunas necessárias ('Funcionário', 'Setor' e 'Admissão') não foram"
-        " encontradas na planilha.",
+        f" identificadas. Colunas encontradas no arquivo: {list(df_sorted.columns)}",
     )
 
   # Converte e trata as datas
@@ -151,10 +160,7 @@ def renderizar_modulo_ferias(df_base):
   )
 
   if df_base is None or df_base.empty:
-    st.warning(
-        "⚠️ Nenhuma base de dados carregada. Selecione um setor válido no"
-        " filtro lateral."
-    )
+    st.warning("⚠️ Nenhuma base de dados carregada para simulação.")
     return
 
   st.sidebar.header("⚙️ Cotas de Férias")
