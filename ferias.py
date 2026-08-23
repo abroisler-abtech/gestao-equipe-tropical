@@ -69,8 +69,8 @@ def ajustar_para_domingo(data_val):
     return data_val + timedelta(days=dias_para_domingo)
 
 def renderizar_modulo_ferias(df):
-    st.subheader("🏖️ Escala Inteligente de Férias - Regras & Capacidade")
-    st.info("Regras do Algoritmo: Início aos Domingos | Máx. 2 pessoas/mês por setor (Fev-Nov) | Sem Limite em Dezembro/Janeiro (Férias Coletivas) | Aviso RH 30 dias.")
+    st.subheader("🏖️ Escala Inteligente de Férias com Regras de Negócio")
+    st.info("📌 **Regras Ativas:** 1) Início obrigatório no **Domingo** | 2) Cota de **Máx. 2 colabs/mês por setor** (Fev a Nov) | 3) **Dez/Jan livres** (Férias Coletivas) | 4) **Aviso RH** com 30 dias de antecedência.")
 
     if df.empty:
         st.warning("Nenhum dado de colaborador disponível para gerar a escala.")
@@ -90,7 +90,7 @@ def renderizar_modulo_ferias(df):
     if 'Escala_Confirmada' not in df.columns:
         df['Escala_Confirmada'] = False
 
-    # 1. Monta e ordena lista por urgência do limite concessivo
+    # 1. Mapeamento e ordenação prioritária pelos limites concessivos mais antigos
     lista_temp = []
     for idx, r in df_ativos.iterrows():
         adm = r.get('dt_adm')
@@ -107,60 +107,65 @@ def renderizar_modulo_ferias(df):
             lista_temp.append({
                 'idx': idx,
                 'colab': r,
+                'data_base': data_base,
                 'limite_conc': limite_conc,
                 'dias_restantes': dias_restantes,
                 'ult_ferias': ult_ferias
             })
 
-    # Ordena rigorosamente pelo limite concessivo mais antigo primeiro
     lista_temp = sorted(lista_temp, key=lambda x: x['limite_conc'])
 
-    # Mapa de controle de capacidade por setor e mês { (setor, "AAAA-MM"): quantidade_em_ferias }
     ocupacao_setor_mes = {}
     lista_escala = []
     alterou_dados = False
 
-    st.markdown("### ⚙️ Gestão de Escala e Capacidade Operacional")
+    st.markdown("### ⚙️ Painel de Programação de Férias & Aprovação RH")
 
     for item in lista_temp:
         idx = item['idx']
         r = item['colab']
+        data_base = item['data_base']
         limite_conc = item['limite_conc']
         dias_restantes = item['dias_restantes']
         ult_ferias = item['ult_ferias']
         setor = r.get('Setor', 'Geral')
 
-        # Ideal: Iniciar 60 dias antes de estourar o limite concessivo (ou pelo menos daqui a 30 dias - Aviso RH)
-        data_sugerida_inicial = max(hoje + timedelta(days=30), limite_conc - timedelta(days=60))
-        data_inicio = ajustar_para_domingo(data_sugerida_inicial)
+        # Regra de agendamento: Tenta 60 dias antes do limite concessivo ou hoje + 30 dias (Aviso RH)
+        data_alvo = max(hoje + timedelta(days=30), limite_conc - timedelta(days=60))
+        data_inicio = ajustar_para_domingo(data_alvo)
 
-        # Loop de alocação no mês disponível respeitando a capacidade por setor
+        # Regra de Capacidade por Setor (Máx 2 por setor/mês, exceto Dez/Jan)
         while True:
             chave_mes = (setor, data_inicio.strftime("%Y-%m"))
-            qtd_agendada = ocupacao_setor_mes.get(chave_mes, 0)
-            
-            # Válvula de escape: Dezembro e Janeiro não têm trava de limite por setor (férias coletivas / escala especial)
-            is_dez_jan = data_inicio.month in [12, 1]
-            
-            if qtd_agendada < 2 or is_dez_jan:
-                ocupacao_setor_mes[chave_mes] = qtd_agendada + 1
+            qtd_na_mesma_pasta = ocupacao_setor_mes.get(chave_mes, 0)
+            is_férias_coletivas = data_inicio.month in [12, 1]
+
+            if qtd_na_mesma_pasta < 2 or is_férias_coletivas:
+                ocupacao_setor_mes[chave_mes] = qtd_na_mesma_pasta + 1
+                regra_status = f"✅ Cota OK ({qtd_na_mesma_pasta + 1}/2 no setor)" if not is_férias_coletivas else "🏖️ Coletivas (Sem limite)"
                 break
             else:
-                # Se o mês já tem 2 colaboradores do mesmo setor em férias, salta 28 dias para buscar o próximo domingo do mês seguinte
+                # Se excedeu a cota do setor no mês, pula 28 dias para pegar o próximo mês
                 data_inicio = ajustar_para_domingo(data_inicio + timedelta(days=28))
 
         data_aviso_rh = data_inicio - timedelta(days=30)
-        situacao_aviso = "⚠️ Emissão de Aviso RH Pendente!" if hoje >= data_aviso_rh and hoje < data_inicio else "OK"
+        
+        if hoje >= data_aviso_rh and hoje < data_inicio:
+            alerta_aviso = "🚨 EMITIR AVISO DE FÉRIAS HOJE!"
+        elif hoje >= data_inicio:
+            alerta_aviso = "🏖️ Em período de Férias"
+        else:
+            alerta_aviso = f"Aviso até {data_aviso_rh.strftime('%d/%m/%Y')}"
 
         dt_adm_str = r['dt_adm'].strftime('%d/%m/%Y') if pd.notnull(r.get('dt_adm')) else (r.get('Admissão', 'N/A'))
         dt_ult_str = ult_ferias.strftime('%d/%m/%Y') if pd.notnull(ult_ferias) else 'Não Registrada'
 
-        c_info, c_frac, c_aprov, c_conf = st.columns([2.2, 1.1, 1.2, 0.9])
+        c_info, c_frac, c_aprov, c_conf = st.columns([2.3, 1.1, 1.2, 0.8])
         
         with c_info:
-            st.write(f"👤 **{r['Funcionário']}** ({setor} - {r.get('Cargo', 'N/A')})")
-            st.caption(f"Admissão: **{dt_adm_str}** | Últs Férias: **{dt_ult_str}** | Limite: **{limite_conc.strftime('%d/%m/%Y')}**")
-            st.caption(f"📅 Sugestão Início (Domingo): **{data_inicio.strftime('%d/%m/%Y')}** | Emitir Aviso RH até: **{data_aviso_rh.strftime('%d/%m/%Y')}** ({situacao_aviso})")
+            st.write(f"👤 **{r['Funcionário']}** | Setor: **{setor}** | Cargo: {r.get('Cargo', 'N/A')}")
+            st.caption(f"🗓️ Admissão: **{dt_adm_str}** | Últs Férias: **{dt_ult_str}** | Limite Concessivo: **{limite_conc.strftime('%d/%m/%Y')}**")
+            st.caption(f"🚀 **Início Sugerido (Domingo): {data_inicio.strftime('%d/%m/%Y')}** | Status Cota: **{regra_status}** | Status RH: **{alerta_aviso}**")
 
         with c_frac:
             frac_atual = r.get('Fracionamento') if pd.notnull(r.get('Fracionamento')) else '30 Dias Corridos'
@@ -175,7 +180,7 @@ def renderizar_modulo_ferias(df):
             aprov_atual = r.get('Aprovacao_RH') if pd.notnull(r.get('Aprovacao_RH')) else 'Pendente'
             opcoes_aprov = ['Pendente', 'Aprovado RH', 'Em Análise', 'Rejeitado']
             idx_a = opcoes_aprov.index(aprov_atual) if aprov_atual in opcoes_aprov else 0
-            nova_aprov = st.selectbox("Aprovação RH", opcoes_aprov, index=idx_a, key=f"aprov_{idx}")
+            nova_aprov = st.selectbox("Status RH", opcoes_aprov, index=idx_a, key=f"aprov_{idx}")
             if nova_aprov != aprov_atual:
                 df.at[idx, 'Aprovacao_RH'] = nova_aprov
                 alterou_dados = True
@@ -197,27 +202,27 @@ def renderizar_modulo_ferias(df):
             "Admissão": dt_adm_str,
             "Últimas Férias": dt_ult_str,
             "Início Férias (Domingo)": data_inicio.strftime('%d/%m/%Y'),
-            "Aviso RH": data_aviso_rh.strftime('%d/%m/%Y'),
+            "Prazo Aviso RH": data_aviso_rh.strftime('%d/%m/%Y'),
             "Limite Concessivo": limite_conc.strftime('%d/%m/%Y'),
             "Fracionamento": df.at[idx, 'Fracionamento'],
             "Status RH": df.at[idx, 'Aprovacao_RH'],
-            "Confirmada": "SIM" if df.at[idx, 'Escala_Confirmada'] else "NÃO"
+            "Confirmado": "SIM" if df.at[idx, 'Escala_Confirmada'] else "NÃO"
         })
 
     if alterou_dados:
         cols_salvar = [c for c in df.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
         df[cols_salvar].to_excel("equipe.xlsx", index=False)
-        st.success("Escala atualizada com sucesso!")
+        st.success("Alterações e confirmações salvas na base!")
         st.rerun()
 
     df_escala = pd.DataFrame(lista_escala)
 
     if not df_escala.empty:
-        st.markdown("### 📋 Escala Processada para Impressão")
+        st.markdown("### 📋 Tabela Consolidada da Escala de Férias")
         st.dataframe(df_escala, use_container_width=True)
 
         st.markdown("---")
-        st.markdown("### 📥 Exportar Escala Processada")
+        st.markdown("### 📥 Exportar Relatório de Escala")
         
         c_down1, c_down2 = st.columns(2)
         
