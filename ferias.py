@@ -20,9 +20,13 @@ def alocar_ferias(
 ):
   df_sorted = df_input.copy()
 
-  # Mapeamento e identificação flexível de colunas
+  # Mapeamento flexível das colunas (aceita 'Funcionário', 'Nome', 'Admissão', etc)
   col_nome = next(
-      (c for c in df_sorted.columns if c.lower() in ["nome", "colaborador"]),
+      (
+          c
+          for c in df_sorted.columns
+          if c.lower() in ["funcionário", "funcionario", "nome", "colaborador"]
+      ),
       None,
   )
   col_setor = next(
@@ -33,7 +37,7 @@ def alocar_ferias(
       (
           c
           for c in df_sorted.columns
-          if "admiss" in c.lower() or "data" in c.lower()
+          if "admiss" in c.lower() or "data" in c.lower() or c == "dt_adm"
       ),
       None,
   )
@@ -41,11 +45,16 @@ def alocar_ferias(
   if not (col_nome and col_setor and col_admissao):
     return (
         None,
-        "As colunas necessárias ('Nome', 'Setor' e 'Data de Admissão') não foram"
-        " encontradas na planilha.",
+        "As colunas necessárias ('Funcionário/Nome', 'Setor' e"
+        " 'Admissão/Data') não foram encontradas na planilha.",
     )
 
-  df_sorted[col_admissao] = pd.to_datetime(df_sorted[col_admissao])
+  # Converte a data de admissão e cria a data de elegibilidade (1 ano)
+  df_sorted[col_admissao] = pd.to_datetime(
+      df_sorted[col_admissao], dayfirst=True, errors="coerce"
+  )
+  df_sorted = df_sorted.dropna(subset=[col_admissao])
+
   df_sorted["data_elegivel"] = df_sorted[col_admissao].apply(
       lambda x: x + relativedelta(years=1)
   )
@@ -69,7 +78,7 @@ def alocar_ferias(
 
       dados_mes = ocupacao[chave_mes]
 
-      # Regra de Alta Temporada (Escolas / Fim de ano)
+      # Regra de Alta Temporada (Dez/Jan)
       eh_alta_temporada = flexibilizar_dez_jan and (mes == 12 or mes == 1)
       limite_geral = (
           cota_alta_temporada if eh_alta_temporada else cota_geral_padrao
@@ -87,7 +96,7 @@ def alocar_ferias(
 
       qtd_setor = dados_mes["setores"].get(setor, 0)
 
-      # Validação da Cota Dupla (Geral + Setor)
+      # Validação da Cota Dupla
       if dados_mes["total"] < limite_geral and qtd_setor < limite_setor:
         dados_mes["total"] += 1
         dados_mes["setores"][setor] = qtd_setor + 1
@@ -136,8 +145,8 @@ def renderizar_modulo_ferias(df_base):
 
   if df_base is None or df_base.empty:
     st.warning(
-        "⚠️ Nenhuma base de dados carregada. Por favor, suba a planilha no"
-        " painel de carregamento."
+        "⚠️ Nenhuma base de dados carregada. Por favor, selecione um setor com"
+        " colaboradores ativos."
     )
     return
 
@@ -174,7 +183,7 @@ def renderizar_modulo_ferias(df_base):
     df_res = st.session_state["df_res_ferias"]
 
     setores = ["Todos"] + list(df_res["Setor"].unique())
-    setor_sel = st.selectbox("🔍 Filtrar por Setor:", setores)
+    setor_sel = st.selectbox("🔍 Filtrar visualização por Setor:", setores)
 
     if setor_sel != "Todos":
       st.dataframe(
