@@ -1,5 +1,8 @@
 import io
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, date, timedelta
 import importlib
 import ferias
@@ -18,14 +21,63 @@ ARQUIVO_USUARIOS = "usuarios.xlsx"
 TODOS_MODULOS = [
     "Dashboard & Alertas",
     "Chamada & Faltas do Dia",
+    "👤 Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
     "Escala Inteligente de Férias",
     "Gestão de Férias (Histórico)",
+    "📊 Indicadores de Frequência & Absenteísmo",
     "Aniversariantes do Mês",
     "Cadastrar / Editar Colaborador",
     "⚙️ Criar / Gerenciar Usuários",
     "📥 Importar Nova Base"
 ]
+
+# --- DISPARO DE E-MAIL SMTP ---
+def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
+    try:
+        conf_email = st.secrets.get("email", {})
+        server_smtp = conf_email.get("smtp_server", "smtp.gmail.com")
+        porta_smtp = int(conf_email.get("smtp_port", 587))
+        remetente = conf_email.get("remetente", "")
+        senha_app = conf_email.get("senha_app", "")
+        url_app = conf_email.get("url_app", "https://share.streamlit.io")
+
+        if not remetente or not senha_app:
+            return False, "Configurações de SMTP [email] não encontradas nos Secrets do Streamlit."
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "🔑 Seu Acesso ao Sistema - Gestão de Equipe Tropical"
+        msg["From"] = remetente
+        msg["To"] = destino_email
+
+        html_corpo = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; color: #1E293B; line-height: 1.6;">
+            <div style="max-width: 600px; margin: 0 auto; border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px;">
+              <h2 style="color: #1E3A8A; margin-top: 0;">Olá, {nome_usuario}!</h2>
+              <p>Seu acesso ao painel de <b>Gestão de Equipe da Tropical Distribuidora</b> foi liberado.</p>
+              <div style="background-color: #F8FAFC; padding: 15px; border-radius: 6px; margin: 15px 0;">
+                <p style="margin: 5px 0;"><b>Link de Acesso:</b> <a href="{url_app}" target="_blank">{url_app}</a></p>
+                <p style="margin: 5px 0;"><b>Login (E-mail/Usuário):</b> {login_acesso}</p>
+                <p style="margin: 5px 0;"><b>Senha de Acesso:</b> {senha_acesso}</p>
+              </div>
+              <p>Recomendamos alterar sua senha no primeiro acesso utilizando o botão <b>🔑 Senha</b> no menu lateral.</p>
+              <hr style="border: 0; border-top: 1px solid #CBD5E1; margin: 20px 0;" />
+              <p style="font-size: 12px; color: #64748B;">Atenciosamente,<br/><b>Tropical Distribuidora</b></p>
+            </div>
+          </body>
+        </html>
+        """
+        msg.attach(MIMEText(html_corpo, "html"))
+
+        with smtplib.SMTP(server_smtp, porta_smtp) as server:
+            server.starttls()
+            server.login(remetente, senha_app)
+            server.sendmail(remetente, destino_email, msg.as_string())
+
+        return True, "E-mail enviado com sucesso!"
+    except Exception as e:
+        return False, str(e)
 
 # --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES ---
 def carregar_usuarios():
@@ -33,7 +85,7 @@ def carregar_usuarios():
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
         df_u.columns = df_u.columns.str.strip()
         
-        for col in ['Nome', 'Usuario', 'Senha', 'Perfil', 'Modulos']:
+        for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos']:
             if col in df_u.columns:
                 df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
             else:
@@ -44,8 +96,8 @@ def carregar_usuarios():
         return df_u
     else:
         dados_iniciais = [
-            {"Nome": "Administrador", "Usuario": "admin", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS)},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia"}
+            {"Nome": "Administrador", "Usuario": "admin", "Email": "admin@tropical.com.br", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS)},
+            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador"}
         ]
         df_u = pd.DataFrame(dados_iniciais)
         df_u.to_excel(ARQUIVO_USUARIOS, index=False)
@@ -167,42 +219,50 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
     return output.getvalue()
 
-# --- AUTENTICAÇÃO DINÂMICA COM SENHA MESTRE ---
+# --- AUTENTICAÇÃO POR NOME OU E-MAIL ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
         st.session_state["perfil"] = None
         st.session_state["usuario_nome"] = None
         st.session_state["usuario_login"] = None
+        st.session_state["usuario_email"] = None
         st.session_state["usuario_modulos"] = []
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito - Gestão de Equipe Tropical")
-        st.info("Informe seu usuário e senha para entrar no sistema.")
+        st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
         
-        user_input = st.text_input("Usuário:").strip().lower()
+        user_input = st.text_input("E-mail ou Usuário:").strip().lower()
         senha_input = st.text_input("Senha:", type="password")
         btn_entrar = st.button("🔑 Entrar no Sistema")
         
         if btn_entrar:
-            if user_input == "admin" and senha_input in ["030711", "123"]:
+            if user_input in ["admin", "admin@tropical.com.br"] and senha_input in ["030711", "123"]:
                 st.session_state["autenticado"] = True
                 st.session_state["perfil"] = "Admin"
                 st.session_state["usuario_nome"] = "Administrador"
                 st.session_state["usuario_login"] = "admin"
+                st.session_state["usuario_email"] = "admin@tropical.com.br"
                 st.session_state["usuario_modulos"] = TODOS_MODULOS
                 st.toast("Acesso de Administrador Liberado!", icon="🔑")
                 st.rerun()
             else:
-                match = df_u[(df_u['Usuario'].astype(str).str.lower() == user_input) & (df_u['Senha'].astype(str) == senha_input)]
+                match = df_u[
+                    ((df_u['Usuario'].astype(str).str.lower() == user_input) | 
+                     (df_u['Email'].astype(str).str.lower() == user_input) |
+                     (df_u['Nome'].astype(str).str.lower() == user_input)) & 
+                    (df_u['Senha'].astype(str) == senha_input)
+                ]
                 if not match.empty:
                     usr = match.iloc[0]
                     st.session_state["autenticado"] = True
                     st.session_state["perfil"] = str(usr['Perfil'])
                     st.session_state["usuario_nome"] = str(usr['Nome'])
                     st.session_state["usuario_login"] = str(usr['Usuario'])
+                    st.session_state["usuario_email"] = str(usr['Email'])
                     
                     mods_raw = str(usr.get('Modulos', ''))
                     st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
@@ -210,7 +270,7 @@ def verificar_senha():
                     st.toast(f"Bem-vindo(a), {usr['Nome']}!", icon="👋")
                     st.rerun()
                 else:
-                    st.error("❌ Usuário ou senha incorretos.")
+                    st.error("❌ E-mail/Usuário ou senha incorretos.")
         return False
     return True
 
@@ -376,6 +436,7 @@ if verificar_senha():
 
         menu = st.sidebar.radio("Navegação", modulos_liberados)
 
+        # CÁLCULOS DE EXPERIÊNCIA
         df_exp = df_filtrado.copy()
         df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
         df_exp['exp_90'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=90) if pd.notnull(d) else None)
@@ -385,7 +446,7 @@ if verificar_senha():
         df_apenas_exp = df_exp[(df_exp['Status'] == 'Ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
 
         if menu == "Dashboard & Alertas":
-            st.subheader("⚠️ Painel Geral")
+            st.subheader("⚠️ Painel Geral de Indicadores")
             
             df_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo']
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
@@ -394,6 +455,14 @@ if verificar_senha():
             faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
             qtd_faltantes_hoje = len(faltas_hoje)
             qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje)
+
+            # ALERTAS DE CONTRATO DE EXPERIÊNCIA A VENCER NOS PRÓXIMOS 10 DIAS
+            exp_criticos = df_apenas_exp[
+                ((df_apenas_exp['dias_para_45'] >= 0) & (df_apenas_exp['dias_para_45'] <= 10)) | 
+                ((df_apenas_exp['dias_para_90'] >= 0) & (df_apenas_exp['dias_para_90'] <= 10))
+            ]
+            if not exp_criticos.empty:
+                st.warning(f"⏰ **ALERTA DE EXPERIÊNCIA:** Existem {len(exp_criticos)} contrato(s) de experiência vencendo nos próximos 10 dias!")
 
             cd1, cd2 = st.columns(2)
             with cd1:
@@ -551,6 +620,28 @@ if verificar_senha():
                                 st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
                             st.rerun()
 
+                    # COMPROVANTE E FORMATO PARA WHATSAPP
+                    faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty else pd.DataFrame()
+                    qtd_f_ch = len(faltas_da_chamada)
+                    qtd_p_ch = max(0, len(colabs_ativos) - qtd_f_ch)
+                    
+                    st.markdown("---")
+                    st.markdown("##### 📲 Resumo Formatado para Envio via WhatsApp / Grupo de Trabalho:")
+                    
+                    txt_wa = f"📊 *RESUMO DE PRESENÇA - TROPICAL DISTRIBUIDORA*\n"
+                    txt_wa += f"📅 *Data:* {data_chamada.strftime('%d/%m/%Y')} | *Setor:* {setor_selecionado}\n"
+                    txt_wa += f"🟢 *Presentes:* {qtd_p_ch} colaboradores\n"
+                    txt_wa += f"🔴 *Ausentes/Faltas:* {qtd_f_ch} colaboradores\n\n"
+                    
+                    if not faltas_da_chamada.empty:
+                        txt_wa += "*Lista de Ausências:*\n"
+                        for _, f_row in faltas_da_chamada.iterrows():
+                            txt_wa += f"• {f_row['Funcionário']} ({f_row.get('Tipo', 'Falta')}) - {f_row.get('Motivo', '-')}\n"
+                    else:
+                        txt_wa += "✨ *Turno com 100% de assiduidade!*\n"
+                        
+                    st.code(txt_wa, language="markdown")
+
             with tab_avulso:
                 with st.form("form_falta_avulsa", clear_on_submit=True):
                     colabs_lista = sorted(df_filtrado[df_filtrado['Status'].isin(['Ativo', 'Férias'])]['Funcionário'].unique()) if not df_filtrado.empty else []
@@ -587,6 +678,61 @@ if verificar_senha():
                     st.info("Nenhum registro cadastrado até o momento.")
                 else:
                     st.dataframe(df_faltas_filtrado, use_container_width=True)
+
+        elif menu == "👤 Ficha Individual do Colaborador":
+            st.subheader("👤 Prontuário & Ficha Individual 360º")
+            
+            lista_todos_colabs = sorted(df['Funcionário'].dropna().unique())
+            if not lista_todos_colabs:
+                st.warning("Nenhum colaborador encontrado.")
+            else:
+                colab_sel = st.selectbox("Selecione o Colaborador para visualizar a ficha:", lista_todos_colabs)
+                r_c = df[df['Funcionário'] == colab_sel].iloc[0]
+                
+                c_f1, c_f2 = st.columns([1, 2])
+                with c_f1:
+                    st.markdown(f"### 👤 {r_c['Funcionário']}")
+                    st.markdown(f"**Matrícula:** {r_c.get('Matricula', 'N/A')}")
+                    st.markdown(f"**Cargo:** {r_c.get('Cargo', 'N/A')}")
+                    st.markdown(f"**Setor:** {r_c.get('Setor', 'N/A')}")
+                    st.markdown(f"**Status Atual:** `{r_c.get('Status', 'Ativo')}`")
+                    
+                with c_f2:
+                    dt_adm_txt = r_c['dt_adm'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_adm')) else 'N/A'
+                    dt_nasc_txt = r_c['dt_nasc'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_nasc')) else 'N/A'
+                    ult_f_txt = str(r_c.get('Ultimas_Ferias')) if pd.notnull(r_c.get('Ultimas_Ferias')) else 'Nenhuma registrada'
+                    
+                    st.info(f"📅 **Admissão:** {dt_adm_txt} | 🎂 **Nascimento:** {dt_nasc_txt}\n\n🏖️ **Últimas Férias:** {ult_f_txt}")
+                
+                st.divider()
+                
+                # HISTÓRICO DE OCORRÊNCIAS
+                f_colab = df_faltas[df_faltas['Funcionário'] == colab_sel] if not df_faltas.empty else pd.DataFrame()
+                st.markdown("##### 📋 Histórico de Ausências & Ocorrências Lançadas:")
+                if f_colab.empty:
+                    st.success("Nenhuma ocorrência ou falta registrada para este colaborador.")
+                else:
+                    st.dataframe(f_colab[['Data', 'Tipo', 'Dias', 'CID', 'Motivo']], use_container_width=True)
+
+        elif menu == "📊 Indicadores de Frequência & Absenteísmo":
+            st.subheader("📊 Painel Analítico de Assiduidade & Ocorrências")
+            
+            if df_faltas_filtrado.empty:
+                st.info("Nenhuma ocorrência registrada no período para gerar análise gráfica.")
+            else:
+                m1, m2, m3 = st.columns(3)
+                tot_dias_perdidos = df_faltas_filtrado['Dias'].sum()
+                tot_atestados = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Atestado Médico'])
+                tot_faltas_injust = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Falta Injustificada'])
+                
+                m1.metric("Total Dias Afastados", tot_dias_perdidos)
+                m2.metric("Ocorrências Atestado", tot_atestados)
+                m3.metric("Faltas Injustificadas", tot_faltas_injust)
+                
+                st.divider()
+                
+                fig_setor = px.histogram(df_faltas_filtrado, x='Setor', y='Dias', color='Tipo', barmode='group', title="Total de Dias Perdidos por Setor")
+                st.plotly_chart(fig_setor, use_container_width=True)
 
         elif menu == "Controle de Experiência (45/90 dias)":
             st.subheader(f"📋 Colaboradores em Período de Experiência e Ações - {setor_selecionado}")
@@ -647,12 +793,16 @@ if verificar_senha():
             with tab_novo_u:
                 with st.form("form_novo_usuario", clear_on_submit=True):
                     c_u1, c_u2 = st.columns(2)
-                    nome_u = c_u1.text_input("Nome do Gestor / Colaborador:")
-                    login_u = c_u2.text_input("Login de Acesso (Ex: joao.silva):").strip().lower()
+                    nome_u = c_u1.text_input("Nome Completo do Gestor:")
+                    login_u = c_u2.text_input("Login de Usuário (Ex: joao.silva):").strip().lower()
+                    
+                    c_e1, c_e2 = st.columns(2)
+                    email_u = c_e1.text_input("E-mail de Acesso:").strip().lower()
+                    senha_u = c_e2.text_input("Senha de Acesso:", type="password")
                     
                     c_p1, c_p2 = st.columns(2)
-                    senha_u = c_p1.text_input("Senha de Acesso:", type="password")
-                    perfil_u = c_p2.selectbox("Perfil Geral:", ["Gestor", "Admin"])
+                    perfil_u = c_p1.selectbox("Perfil Geral:", ["Gestor", "Admin"])
+                    enviar_mail_chk = c_p2.checkbox("📧 Enviar dados de acesso por e-mail?", value=True)
                     
                     st.markdown("##### 📌 Selecione os Módulos Liberados para este Usuário:")
                     modulos_selecionados = []
@@ -667,15 +817,23 @@ if verificar_senha():
                     
                     if btn_cad_u and nome_u and login_u and senha_u:
                         if login_u in df_usuarios['Usuario'].astype(str).str.lower().values:
-                            st.error(f"❌ O login '{login_u}' já existe! Escolha outro login.")
+                            st.error(f"❌ O login '{login_u}' já existe!")
                         elif not modulos_selecionados:
-                            st.warning("⚠️ Selecione pelo menos um módulo para liberar o acesso.")
+                            st.warning("⚠️ Selecione pelo menos um módulo.")
                         else:
                             str_mods = ",".join(modulos_selecionados)
-                            novo_usr = {"Nome": str(nome_u).strip(), "Usuario": str(login_u).strip(), "Senha": str(senha_u).strip(), "Perfil": str(perfil_u), "Modulos": str_mods}
+                            novo_usr = {"Nome": str(nome_u).strip(), "Usuario": str(login_u).strip(), "Email": str(email_u).strip(), "Senha": str(senha_u).strip(), "Perfil": str(perfil_u), "Modulos": str_mods}
                             df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
-                            st.toast(f"✅ Usuário '{login_u}' criado com sucesso!", icon="🎉")
+                            
+                            st.toast(f"✅ Usuário '{nome_u}' criado!", icon="🎉")
+                            
+                            if enviar_mail_chk and email_u:
+                                ok_m, msg_m = enviar_email_acesso(email_u, nome_u, email_u, senha_u)
+                                if ok_m:
+                                    st.toast("📧 E-mail de acesso enviado com sucesso!", icon="✉️")
+                                else:
+                                    st.warning(f"Usuário criado, mas o e-mail não foi enviado: {msg_m}")
                             st.rerun()
 
             with tab_edit_u:
@@ -687,16 +845,19 @@ if verificar_senha():
                     usr_dados = df_usuarios.loc[idx_u]
                     
                     with st.form("form_edit_usr"):
-                        st.info(f"Editando dados e permissões do usuário **{usr_dados['Usuario']}**")
+                        st.info(f"Editando dados e permissões do usuário **{usr_dados['Nome']}**")
                         
                         e_u1, e_u2 = st.columns(2)
-                        e_nome = e_u1.text_input("Nome:", value=str(usr_dados['Nome']))
-                        e_senha = e_u2.text_input("Senha:", value=str(usr_dados['Senha']), type="password")
+                        e_nome = e_u1.text_input("Nome Completo:", value=str(usr_dados['Nome']))
+                        e_email = e_u2.text_input("E-mail:", value=str(usr_dados.get('Email', '')))
                         
-                        e_p1, _ = st.columns(2)
+                        e_s1, e_s2 = st.columns(2)
+                        e_senha = e_s1.text_input("Senha:", value=str(usr_dados['Senha']), type="password")
                         opts_p = ["Gestor", "Admin"]
                         idx_p = opts_p.index(usr_dados['Perfil']) if usr_dados['Perfil'] in opts_p else 0
-                        e_perfil = e_p1.selectbox("Perfil Geral:", opts_p, index=idx_p)
+                        e_perfil = e_s2.selectbox("Perfil Geral:", opts_p, index=idx_p)
+                        
+                        reenviar_mail_chk = st.checkbox("📧 Reenviar e-mail com os novos dados de acesso?", value=False)
                         
                         st.markdown("##### 📌 Módulos Liberados:")
                         mods_atuais = [m.strip() for m in str(usr_dados.get('Modulos', '')).split(',') if m.strip()]
@@ -712,6 +873,7 @@ if verificar_senha():
                         
                         if btn_salvar_edit:
                             df_usuarios.loc[idx_u, 'Nome'] = str(e_nome).strip()
+                            df_usuarios.loc[idx_u, 'Email'] = str(e_email).strip()
                             df_usuarios.loc[idx_u, 'Senha'] = str(e_senha).strip()
                             df_usuarios.loc[idx_u, 'Perfil'] = str(e_perfil)
                             df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
@@ -722,12 +884,19 @@ if verificar_senha():
                                 st.session_state["perfil"] = str(e_perfil)
                                 st.session_state["usuario_modulos"] = e_modulos
 
-                            st.toast(f"✅ Permissões de '{usr_sel_edit}' atualizadas com sucesso!", icon="💾")
+                            st.toast(f"✅ Permissões de '{e_nome}' atualizadas!", icon="💾")
+                            
+                            if reenviar_mail_chk and e_email:
+                                ok_m, msg_m = enviar_email_acesso(e_email, e_nome, e_email, e_senha)
+                                if ok_m:
+                                    st.toast("📧 E-mail atualizado enviado!", icon="✉️")
+                                else:
+                                    st.warning(f"Alterado, mas falhou envio do e-mail: {msg_m}")
                             st.rerun()
 
             with tab_lista_u:
                 st.markdown("##### 👥 Usuários e Módulos Cadastrados:")
-                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Perfil', 'Modulos']], use_container_width=True)
+                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Email', 'Perfil', 'Modulos']], use_container_width=True)
                 
                 st.markdown("---")
                 st.markdown("##### 🗑️ Excluir Acesso de Usuário")
