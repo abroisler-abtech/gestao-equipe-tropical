@@ -212,7 +212,7 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements.append(Spacer(1, 5))
     
     cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
+    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
     
     for _, row in df_filtrado[cols_pres].iterrows():
         r_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in row]
@@ -481,10 +481,8 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
-            # Ocorrências do dia
             faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
             
-            # Separação por tipo no dia
             df_folgas_hoje = faltas_hoje[faltas_hoje['Tipo'] == 'Folga Concedida'] if not faltas_hoje.empty else pd.DataFrame()
             df_ausencias_hoje = faltas_hoje[faltas_hoje['Tipo'] != 'Folga Concedida'] if not faltas_hoje.empty else pd.DataFrame()
             
@@ -522,13 +520,11 @@ if verificar_senha():
 
             st.markdown("---")
 
-            # MÉTRICAS DE PRESENÇA, FOLGAS E FALTAS DO DIA
             p1, p2, p3 = st.columns(3)
             
             with p1:
                 st.metric("🟢 Presentes Hoje", qtd_presentes_hoje)
                 if st.button("🔍 Ver Presentes de Hoje", key="btn_ver_pres_hoje"):
-                    # Filtra quem não está ausente nem de folga no dia
                     nomes_ausentes_ou_folga = faltas_hoje['Funcionário'].tolist() if not faltas_hoje.empty else []
                     df_pres_detalhe = df_ativos[~df_ativos['Funcionário'].isin(nomes_ausentes_ou_folga)]
                     cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
@@ -615,7 +611,6 @@ if verificar_senha():
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
                     st.info("💡 **Instruções:** Marque **☑️ Presente** para quem veio e **🏖️ Folga** se for folga programada. Quem ficar desmarcado é contabilizado como **Ausência/Falta**.")
                     
-                    # Remover ausências anteriores da mesma data ao atualizar chamada do dia
                     df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
 
                     with st.form("form_chamada_diaria"):
@@ -681,7 +676,6 @@ if verificar_senha():
                                 st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
                             st.rerun()
 
-                    # COMPROVANTE E FORMATO PARA WHATSAPP
                     faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty else pd.DataFrame()
                     qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
                     qtd_folgas_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Folga Concedida'])
@@ -846,6 +840,83 @@ if verificar_senha():
 
         elif menu == "Cadastrar / Editar Colaborador":
             st.subheader("👥 Gestão do Cadastro de Colaboradores")
+            
+            tab_cad, tab_edit_colab = st.tabs(["➕ Novo Colaborador", "✏️ Editar / Inativar Colaborador"])
+            
+            with tab_cad:
+                with st.form("form_novo_colaborador", clear_on_submit=True):
+                    st.markdown("##### 📝 Dados do Novo Colaborador")
+                    c_c1, c_c2 = st.columns(2)
+                    c_mat = c_c1.text_input("Matrícula:")
+                    c_nome = c_c2.text_input("Nome Completo:")
+                    
+                    c_s1, c_s2 = st.columns(2)
+                    setores_opts = sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Geral"]
+                    c_setor = c_s1.selectbox("Setor:", setores_opts)
+                    c_cargo = c_s2.text_input("Cargo:")
+                    
+                    c_d1, c_d2, c_d3 = st.columns(3)
+                    c_adm = c_d1.date_input("Data de Admissão:", value=hoje, format="DD/MM/YYYY")
+                    c_nasc = c_d2.date_input("Data de Nascimento:", value=date(1995, 1, 1), format="DD/MM/YYYY")
+                    c_status = c_d3.selectbox("Status Inicial:", ["Ativo", "Férias", "Afastado", "Desligado"])
+                    
+                    btn_salvar_colab = st.form_submit_button("💾 Salvar Colaborador")
+                    
+                    if btn_salvar_colab and c_nome:
+                        novo_c = {
+                            "Matricula": str(c_mat).strip(),
+                            "Funcionário": str(c_nome).strip(),
+                            "Setor": str(c_setor),
+                            "Cargo": str(c_cargo).strip(),
+                            "Admissão": c_adm.strftime('%d/%m/%Y'),
+                            "Nascimento": c_nasc.strftime('%d/%m/%Y'),
+                            "Status": str(c_status)
+                        }
+                        df = pd.concat([df, pd.DataFrame([novo_c])], ignore_index=True)
+                        salvar_dados(df)
+                        st.toast(f"✅ Colaborador '{c_nome}' cadastrado com sucesso!", icon="🎉")
+                        st.rerun()
+
+            with tab_edit_colab:
+                lista_colabs_cad = sorted(df['Funcionário'].dropna().unique())
+                colab_sel_edit = st.selectbox("Selecione o Colaborador para Alterar:", lista_colabs_cad)
+                
+                if colab_sel_edit:
+                    idx_c = df[df['Funcionário'] == colab_sel_edit].index[0]
+                    colab_row = df.loc[idx_c]
+                    
+                    with st.form("form_editar_colaborador"):
+                        st.info(f"Alterando cadastro de **{colab_row['Funcionário']}**")
+                        
+                        e_c1, e_c2 = st.columns(2)
+                        e_mat = e_c1.text_input("Matrícula:", value=str(colab_row.get('Matricula', '')))
+                        e_nome = e_c2.text_input("Nome Completo:", value=str(colab_row['Funcionário']))
+                        
+                        e_s1, e_s2 = st.columns(2)
+                        e_setor = e_s1.text_input("Setor:", value=str(colab_row.get('Setor', '')))
+                        e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
+                        
+                        e_st1, e_st2 = st.columns(2)
+                        opts_status = ["Ativo", "Férias", "Afastado", "Desligado"]
+                        st_atual = colab_row.get('Status', 'Ativo')
+                        idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
+                        e_status = e_st1.selectbox("Status Atual:", opts_status, index=idx_st)
+                        
+                        e_ult_ferias = e_st2.text_input("Últimas Férias (DD/MM/AAAA):", value=str(colab_row.get('Ultimas_Ferias', '')) if pd.notnull(colab_row.get('Ultimas_Ferias')) else "")
+                        
+                        btn_salvar_edit_c = st.form_submit_button("✏️ Atualizar Cadastro")
+                        
+                        if btn_salvar_edit_c:
+                            df.loc[idx_c, 'Matricula'] = str(e_mat).strip()
+                            df.loc[idx_c, 'Funcionário'] = str(e_nome).strip()
+                            df.loc[idx_c, 'Setor'] = str(e_setor).strip()
+                            df.loc[idx_c, 'Cargo'] = str(e_cargo).strip()
+                            df.loc[idx_c, 'Status'] = str(e_status)
+                            df.loc[idx_c, 'Ultimas_Ferias'] = str(e_ult_ferias).strip() if e_ult_ferias.strip() else None
+                            
+                            salvar_dados(df)
+                            st.toast("✅ Cadastro de colaborador atualizado!", icon="💾")
+                            st.rerun()
 
         elif menu == "⚙️ Criar / Gerenciar Usuários":
             st.subheader("⚙️ Painel do Administrador - Gestão de Usuários & Permissões")
