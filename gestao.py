@@ -66,7 +66,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
         url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
 
         if not remetente or not senha_app:
-            return False, "Configurações de SMTP [email] não encontradas nos Secrets do Streamlit."
+            return False, "Servidor de e-mail não configurado. Utilize o link direto de envio por WhatsApp."
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = "🔑 Seu Acesso ao Sistema - Gestão de Equipe Tropical"
@@ -830,7 +830,7 @@ if verificar_senha():
                     
                     c_p1, c_p2 = st.columns(2)
                     perfil_u = c_p1.selectbox("Perfil Geral:", ["Gestor", "Admin"])
-                    enviar_mail_chk = c_p2.checkbox("📧 Enviar dados de acesso por e-mail?", value=True)
+                    enviar_mail_chk = c_p2.checkbox("📧 Enviar dados de acesso também por e-mail?", value=False)
                     
                     st.markdown("##### 📌 Selecione os Módulos Liberados para este Usuário:")
                     modulos_selecionados = []
@@ -854,18 +854,18 @@ if verificar_senha():
                             df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
                             
-                            st.toast(f"✅ Usuário '{nome_u}' criado!", icon="🎉")
+                            st.toast(f"✅ Usuário '{nome_u}' criado com sucesso!", icon="🎉")
                             
                             if tel_u:
                                 link_wa_novo = gerar_link_whatsapp(tel_u, nome_u, email_u if email_u else login_u, senha_u)
-                                st.markdown(f"👉 **[📲 Clique aqui para enviar o acesso por WhatsApp]( {link_wa_novo} )**")
+                                st.markdown(f"👉 **[📲 Clique aqui para enviar o acesso por WhatsApp]({link_wa_novo})**")
 
                             if enviar_mail_chk and email_u:
                                 ok_m, msg_m = enviar_email_acesso(email_u, nome_u, email_u, senha_u)
                                 if ok_m:
                                     st.toast("📧 E-mail de acesso enviado com sucesso!", icon="✉️")
                                 else:
-                                    st.warning(f"Usuário criado, mas o e-mail não foi enviado: {msg_m}")
+                                    st.info(f"ℹ️ {msg_m}")
 
             with tab_edit_u:
                 lista_logins = sorted(df_usuarios['Usuario'].astype(str).unique())
@@ -921,14 +921,14 @@ if verificar_senha():
                             
                             if e_tel:
                                 link_wa_edit = gerar_link_whatsapp(e_tel, e_nome, e_email if e_email else e_nome, e_senha)
-                                st.markdown(f"👉 **[📲 Clique aqui para enviar os novos dados via WhatsApp]( {link_wa_edit} )**")
+                                st.markdown(f"👉 **[📲 Clique aqui para enviar os novos dados via WhatsApp]({link_wa_edit})**")
 
                             if reenviar_mail_chk and e_email:
                                 ok_m, msg_m = enviar_email_acesso(e_email, e_nome, e_email, e_senha)
                                 if ok_m:
                                     st.toast("📧 E-mail atualizado enviado!", icon="✉️")
                                 else:
-                                    st.warning(f"Alterado, mas falhou envio do e-mail: {msg_m}")
+                                    st.info(f"ℹ️ {msg_m}")
 
             with tab_lista_u:
                 st.markdown("##### 👥 Usuários e Módulos Cadastrados:")
@@ -942,7 +942,7 @@ if verificar_senha():
                     u_tel = u_row.get('Telefone', '')
                     if u_tel and u_tel != 'nan':
                         l_wa_direto = gerar_link_whatsapp(u_tel, u_row['Nome'], u_row['Email'] if u_row['Email'] else u_row['Usuario'], u_row['Senha'])
-                        st.markdown(f"👉 **[📲 Abrir WhatsApp e Enviar Acesso para {u_row['Nome']}]( {l_wa_direto} )**")
+                        st.markdown(f"👉 **[📲 Abrir WhatsApp e Enviar Acesso para {u_row['Nome']}]({l_wa_direto})**")
                     else:
                         st.info("⚠️ Este usuário não possui um número de WhatsApp cadastrado.")
 
