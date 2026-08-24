@@ -96,7 +96,7 @@ def carregar_usuarios():
         return df_u
     else:
         dados_iniciais = [
-            {"Nome": "Administrador", "Usuario": "admin", "Email": "admin@tropical.com.br", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS)},
+            {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS)},
             {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador"}
         ]
         df_u = pd.DataFrame(dados_iniciais)
@@ -219,7 +219,7 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
     return output.getvalue()
 
-# --- AUTENTICAÇÃO POR NOME OU E-MAIL ---
+# --- AUTENTICAÇÃO COM NOME/E-MAIL E ACESSO MESTRE ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
@@ -240,12 +240,15 @@ def verificar_senha():
         btn_entrar = st.button("🔑 Entrar no Sistema")
         
         if btn_entrar:
-            if user_input in ["admin", "admin@tropical.com.br"] and senha_input in ["030711", "123"]:
+            logins_admin = ["admin", "admin@tropical.com.br", "abroisler@gmail.com", "andre"]
+            senhas_validas = ["030711", "123"]
+            
+            if user_input in logins_admin and senha_input in senhas_validas:
                 st.session_state["autenticado"] = True
                 st.session_state["perfil"] = "Admin"
-                st.session_state["usuario_nome"] = "Administrador"
+                st.session_state["usuario_nome"] = "André Broisler"
                 st.session_state["usuario_login"] = "admin"
-                st.session_state["usuario_email"] = "admin@tropical.com.br"
+                st.session_state["usuario_email"] = "abroisler@gmail.com"
                 st.session_state["usuario_modulos"] = TODOS_MODULOS
                 st.toast("Acesso de Administrador Liberado!", icon="🔑")
                 st.rerun()
@@ -706,7 +709,6 @@ if verificar_senha():
                 
                 st.divider()
                 
-                # HISTÓRICO DE OCORRÊNCIAS
                 f_colab = df_faltas[df_faltas['Funcionário'] == colab_sel] if not df_faltas.empty else pd.DataFrame()
                 st.markdown("##### 📋 Histórico de Ausências & Ocorrências Lançadas:")
                 if f_colab.empty:
