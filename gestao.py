@@ -1,6 +1,7 @@
 import io
 import os
 import smtplib
+import urllib.parse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, date, timedelta
@@ -32,6 +33,28 @@ TODOS_MODULOS = [
     "📥 Importar Nova Base"
 ]
 
+# --- GERADOR DE LINK PARA O WHATSAPP ---
+def gerar_link_whatsapp(telefone, nome_usuario, login_acesso, senha_acesso):
+    num_limpo = "".join(filter(str.isdigit, str(telefone)))
+    if not num_limpo.startswith("55") and len(num_limpo) in [10, 11]:
+        num_limpo = f"55{num_limpo}"
+        
+    conf_email = st.secrets.get("email", {})
+    url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
+    
+    texto_msg = f"""🔑 *ACESSO AO SISTEMA - GESTÃO DE PESSOAS*
+
+Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liberado.
+
+🔗 *Link de Acesso:* {url_app}
+👤 *Usuário/E-mail:* {login_acesso}
+🔑 *Senha:* {senha_acesso}
+
+_Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler_"""
+
+    texto_encoded = urllib.parse.quote(texto_msg)
+    return f"https://wa.me/{num_limpo}?text={texto_encoded}"
+
 # --- DISPARO DE E-MAIL SMTP ---
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
     try:
@@ -40,7 +63,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
         porta_smtp = int(conf_email.get("smtp_port", 587))
         remetente = conf_email.get("remetente", "")
         senha_app = conf_email.get("senha_app", "")
-        url_app = conf_email.get("url_app", "https://share.streamlit.io")
+        url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
 
         if not remetente or not senha_app:
             return False, "Configurações de SMTP [email] não encontradas nos Secrets do Streamlit."
@@ -85,7 +108,7 @@ def carregar_usuarios():
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
         df_u.columns = df_u.columns.str.strip()
         
-        for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos']:
+        for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos', 'Telefone']:
             if col in df_u.columns:
                 df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
             else:
@@ -96,8 +119,8 @@ def carregar_usuarios():
         return df_u
     else:
         dados_iniciais = [
-            {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS)},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador"}
+            {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
+            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador", "Telefone": ""}
         ]
         df_u = pd.DataFrame(dados_iniciais)
         df_u.to_excel(ARQUIVO_USUARIOS, index=False)
@@ -800,9 +823,10 @@ if verificar_senha():
                     nome_u = c_u1.text_input("Nome Completo do Gestor:")
                     login_u = c_u2.text_input("Login de Usuário (Ex: joao.silva):").strip().lower()
                     
-                    c_e1, c_e2 = st.columns(2)
+                    c_e1, c_e2, c_t1 = st.columns([1.5, 1.5, 1])
                     email_u = c_e1.text_input("E-mail de Acesso:").strip().lower()
                     senha_u = c_e2.text_input("Senha de Acesso:", type="password")
+                    tel_u = c_t1.text_input("WhatsApp (DDD+Num):", value="")
                     
                     c_p1, c_p2 = st.columns(2)
                     perfil_u = c_p1.selectbox("Perfil Geral:", ["Gestor", "Admin"])
@@ -826,19 +850,22 @@ if verificar_senha():
                             st.warning("⚠️ Selecione pelo menos um módulo.")
                         else:
                             str_mods = ",".join(modulos_selecionados)
-                            novo_usr = {"Nome": str(nome_u).strip(), "Usuario": str(login_u).strip(), "Email": str(email_u).strip(), "Senha": str(senha_u).strip(), "Perfil": str(perfil_u), "Modulos": str_mods}
+                            novo_usr = {"Nome": str(nome_u).strip(), "Usuario": str(login_u).strip(), "Email": str(email_u).strip(), "Senha": str(senha_u).strip(), "Perfil": str(perfil_u), "Modulos": str_mods, "Telefone": str(tel_u).strip()}
                             df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
                             
                             st.toast(f"✅ Usuário '{nome_u}' criado!", icon="🎉")
                             
+                            if tel_u:
+                                link_wa_novo = gerar_link_whatsapp(tel_u, nome_u, email_u if email_u else login_u, senha_u)
+                                st.markdown(f"👉 **[📲 Clique aqui para enviar o acesso por WhatsApp]( {link_wa_novo} )**")
+
                             if enviar_mail_chk and email_u:
                                 ok_m, msg_m = enviar_email_acesso(email_u, nome_u, email_u, senha_u)
                                 if ok_m:
                                     st.toast("📧 E-mail de acesso enviado com sucesso!", icon="✉️")
                                 else:
                                     st.warning(f"Usuário criado, mas o e-mail não foi enviado: {msg_m}")
-                            st.rerun()
 
             with tab_edit_u:
                 lista_logins = sorted(df_usuarios['Usuario'].astype(str).unique())
@@ -855,11 +882,12 @@ if verificar_senha():
                         e_nome = e_u1.text_input("Nome Completo:", value=str(usr_dados['Nome']))
                         e_email = e_u2.text_input("E-mail:", value=str(usr_dados.get('Email', '')))
                         
-                        e_s1, e_s2 = st.columns(2)
+                        e_s1, e_s2, e_t1 = st.columns([1.2, 1.2, 1])
                         e_senha = e_s1.text_input("Senha:", value=str(usr_dados['Senha']), type="password")
                         opts_p = ["Gestor", "Admin"]
                         idx_p = opts_p.index(usr_dados['Perfil']) if usr_dados['Perfil'] in opts_p else 0
                         e_perfil = e_s2.selectbox("Perfil Geral:", opts_p, index=idx_p)
+                        e_tel = e_t1.text_input("WhatsApp (DDD+Num):", value=str(usr_dados.get('Telefone', '')))
                         
                         reenviar_mail_chk = st.checkbox("📧 Reenviar e-mail com os novos dados de acesso?", value=False)
                         
@@ -881,6 +909,7 @@ if verificar_senha():
                             df_usuarios.loc[idx_u, 'Senha'] = str(e_senha).strip()
                             df_usuarios.loc[idx_u, 'Perfil'] = str(e_perfil)
                             df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
+                            df_usuarios.loc[idx_u, 'Telefone'] = str(e_tel).strip()
                             salvar_usuarios(df_usuarios)
                             
                             if str(usr_dados['Usuario']).lower() == str(st.session_state.get("usuario_login")).lower():
@@ -890,18 +919,33 @@ if verificar_senha():
 
                             st.toast(f"✅ Permissões de '{e_nome}' atualizadas!", icon="💾")
                             
+                            if e_tel:
+                                link_wa_edit = gerar_link_whatsapp(e_tel, e_nome, e_email if e_email else e_nome, e_senha)
+                                st.markdown(f"👉 **[📲 Clique aqui para enviar os novos dados via WhatsApp]( {link_wa_edit} )**")
+
                             if reenviar_mail_chk and e_email:
                                 ok_m, msg_m = enviar_email_acesso(e_email, e_nome, e_email, e_senha)
                                 if ok_m:
                                     st.toast("📧 E-mail atualizado enviado!", icon="✉️")
                                 else:
                                     st.warning(f"Alterado, mas falhou envio do e-mail: {msg_m}")
-                            st.rerun()
 
             with tab_lista_u:
                 st.markdown("##### 👥 Usuários e Módulos Cadastrados:")
-                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Email', 'Perfil', 'Modulos']], use_container_width=True)
+                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Email', 'Telefone', 'Perfil', 'Modulos']], use_container_width=True)
                 
+                st.markdown("---")
+                st.markdown("##### 📲 Envio Rápido de Convite por WhatsApp")
+                usr_wa_sel = st.selectbox("Selecione o usuário para enviar acesso por WhatsApp:", df_usuarios['Usuario'].dropna().unique(), key="sel_wa_u")
+                if usr_wa_sel:
+                    u_row = df_usuarios[df_usuarios['Usuario'] == usr_wa_sel].iloc[0]
+                    u_tel = u_row.get('Telefone', '')
+                    if u_tel and u_tel != 'nan':
+                        l_wa_direto = gerar_link_whatsapp(u_tel, u_row['Nome'], u_row['Email'] if u_row['Email'] else u_row['Usuario'], u_row['Senha'])
+                        st.markdown(f"👉 **[📲 Abrir WhatsApp e Enviar Acesso para {u_row['Nome']}]( {l_wa_direto} )**")
+                    else:
+                        st.info("⚠️ Este usuário não possui um número de WhatsApp cadastrado.")
+
                 st.markdown("---")
                 st.markdown("##### 🗑️ Excluir Acesso de Usuário")
                 usr_del = st.selectbox("Selecione o usuário para remover:", df_usuarios['Usuario'].dropna().unique(), key="sel_del_u")
