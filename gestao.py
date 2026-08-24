@@ -481,9 +481,16 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
+            # Ocorrências do dia
             faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
-            qtd_faltantes_hoje = len(faltas_hoje)
-            qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje)
+            
+            # Separação por tipo no dia
+            df_folgas_hoje = faltas_hoje[faltas_hoje['Tipo'] == 'Folga Concedida'] if not faltas_hoje.empty else pd.DataFrame()
+            df_ausencias_hoje = faltas_hoje[faltas_hoje['Tipo'] != 'Folga Concedida'] if not faltas_hoje.empty else pd.DataFrame()
+            
+            qtd_folgas_hoje = len(df_folgas_hoje)
+            qtd_faltantes_hoje = len(df_ausencias_hoje)
+            qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje - qtd_folgas_hoje)
 
             exp_criticos = df_apenas_exp[
                 ((df_apenas_exp['dias_para_45'] >= 0) & (df_apenas_exp['dias_para_45'] <= 10)) | 
@@ -515,16 +522,29 @@ if verificar_senha():
 
             st.markdown("---")
 
-            p1, p2 = st.columns(2)
-            p1.metric("🟢 Presentes Hoje", qtd_presentes_hoje)
-            p2.metric("🔴 Faltantes / Ausentes Hoje", qtd_faltantes_hoje)
+            # MÉTRICAS DE PRESENÇA, FOLGAS E FALTAS DO DIA
+            p1, p2, p3 = st.columns(3)
+            
+            with p1:
+                st.metric("🟢 Presentes Hoje", qtd_presentes_hoje)
+                if st.button("🔍 Ver Presentes de Hoje", key="btn_ver_pres_hoje"):
+                    # Filtra quem não está ausente nem de folga no dia
+                    nomes_ausentes_ou_folga = faltas_hoje['Funcionário'].tolist() if not faltas_hoje.empty else []
+                    df_pres_detalhe = df_ativos[~df_ativos['Funcionário'].isin(nomes_ausentes_ou_folga)]
+                    cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
+                    exibir_modal_detalhes(f"Colaboradores Presentes em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
+                    
+            with p2:
+                st.metric("🏖️ Folgas Hoje", qtd_folgas_hoje)
+                if st.button("🔍 Ver Folgas de Hoje", key="btn_ver_folgas_hoje"):
+                    cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Motivo'] if c in df_folgas_hoje.columns]
+                    exibir_modal_detalhes(f"Colaboradores de Folga em {hoje.strftime('%d/%m/%Y')}", df_folgas_hoje[cols_m] if not df_folgas_hoje.empty else pd.DataFrame())
 
-            if not faltas_hoje.empty:
-                st.error("🚨 **JANELA DE AUSÊNCIAS/FALTANTES DO DIA HOJE:**")
-                cols_f_hoje = st.columns(min(len(faltas_hoje), 3))
-                for i_fh, (_, fh) in enumerate(faltas_hoje.iterrows()):
-                    with cols_f_hoje[i_fh % 3]:
-                        st.warning(f"👤 **{fh['Funcionário']}**\n\n**Setor:** {fh.get('Setor', 'N/A')}\n\n**Tipo:** {fh.get('Tipo', 'Falta')}\n\n**Motivo:** {fh.get('Motivo', '-')}")
+            with p3:
+                st.metric("🔴 Faltantes / Ausentes Hoje", qtd_faltantes_hoje)
+                if st.button("🔍 Ver Faltantes de Hoje", key="btn_ver_faltas_hoje"):
+                    cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Motivo'] if c in df_ausencias_hoje.columns]
+                    exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje[cols_m] if not df_ausencias_hoje.empty else pd.DataFrame())
 
             st.markdown("---")
 
@@ -555,9 +575,9 @@ if verificar_senha():
                 exibir_modal_detalhes("Colaboradores Afastados / Atestado / INSS", df_afastados[cols_m])
 
             c5.metric("Faltas Hoje", qtd_faltantes_hoje)
-            if c5.button("🔍 Ver Faltas Hoje", key="btn_faltas_hoje"):
-                cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in faltas_hoje.columns]
-                exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", faltas_hoje[cols_m] if not faltas_hoje.empty else pd.DataFrame())
+            if c5.button("🔍 Ver Faltas", key="btn_faltas_quadro"):
+                cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in df_ausencias_hoje.columns]
+                exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje[cols_m] if not df_ausencias_hoje.empty else pd.DataFrame())
 
             niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
             c6.metric("Aniversariantes", len(niver_mes))
@@ -593,7 +613,7 @@ if verificar_senha():
                     st.warning("Nenhum colaborador ativo no setor para chamada.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
-                    st.info("💡 **Dica:** Marque (tique) os colaboradores conforme chegam no turno e clique em 'Salvar' para contabilizar a chamada de cada turma.")
+                    st.info("💡 **Instruções:** Marque **☑️ Presente** para quem veio e **🏖️ Folga** se for folga programada. Quem ficar desmarcado é contabilizado como **Ausência/Falta**.")
                     
                     # Remover ausências anteriores da mesma data ao atualizar chamada do dia
                     df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
@@ -601,63 +621,71 @@ if verificar_senha():
                     with st.form("form_chamada_diaria"):
                         st.markdown("---")
                         presencas = {}
-                        motivos_falta = {}
+                        folgas = {}
                         
                         for i_c, (_, colab_c) in enumerate(colabs_ativos.iterrows()):
                             nome_c = colab_c['Funcionário']
-                            c_pres, c_tipo_f, c_obs_f = st.columns([1.5, 1.2, 1.5])
+                            c_nome, c_pres, c_folga = st.columns([2.5, 1, 1])
                             
+                            with c_nome:
+                                st.markdown(f"**{nome_c}**  \n<font size=2 color='#64748B'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
+                                
                             with c_pres:
-                                # DESMARCADO POR PADRÃO PARA MARCAR CONFORME CHEGAM AS TURMAS
-                                is_pres = st.checkbox(f"**{nome_c}** ({colab_c.get('Cargo', 'N/A')})", value=False, key=f"chk_{i_c}")
+                                is_pres = st.checkbox("☑️ Presente", value=False, key=f"chk_pres_{i_c}")
                                 presencas[nome_c] = is_pres
                                 
-                            with c_tipo_f:
-                                if not is_pres:
-                                    tp_falta = st.selectbox("Tipo", ["Falta Injustificada", "Atestado Médico", "Folga Concedida"], key=f"tp_{i_c}")
-                                else:
-                                    tp_falta = None
-                                    
-                            with c_obs_f:
-                                if not is_pres:
-                                    obs_f = st.text_input("Observação/Motivo", value="", key=f"obs_{i_c}")
-                                else:
-                                    obs_f = ""
-                                    
-                            motivos_falta[nome_c] = (tp_falta, obs_f)
+                            with c_folga:
+                                is_folga = st.checkbox("🏖️ Folga", value=False, key=f"chk_folga_{i_c}")
+                                folgas[nome_c] = is_folga
                             
                         btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia")
                         
                         if btn_salvar_chamada:
                             novas_f = []
-                            for nome_c, esteve_presente in presencas.items():
-                                if not esteve_presente:
-                                    tp_f, obs_f = motivos_falta[nome_c]
-                                    d_colab = colabs_ativos[colabs_ativos['Funcionário'] == nome_c].iloc[0]
+                            for nome_c in colabs_ativos['Funcionário']:
+                                esteve_presente = presencas.get(nome_c, False)
+                                esta_de_folga = folgas.get(nome_c, False)
+                                d_colab = colabs_ativos[colabs_ativos['Funcionário'] == nome_c].iloc[0]
+                                
+                                if esta_de_folga:
                                     novas_f.append({
                                         "Matricula": str(d_colab.get('Matricula', '')),
                                         "Funcionário": nome_c,
                                         "Setor": d_colab.get('Setor', ''),
                                         "Data": data_chamada.strftime('%d/%m/%Y'),
-                                        "Tipo": tp_f,
+                                        "Tipo": "Folga Concedida",
                                         "Dias": 1,
                                         "CID": "-",
-                                        "Motivo": obs_f if obs_f else "Registrado pela Chamada Diária",
+                                        "Motivo": "Folga Programada / Escala",
                                         "dt_falta": data_chamada
                                     })
+                                elif not esteve_presente:
+                                    novas_f.append({
+                                        "Matricula": str(d_colab.get('Matricula', '')),
+                                        "Funcionário": nome_c,
+                                        "Setor": d_colab.get('Setor', ''),
+                                        "Data": data_chamada.strftime('%d/%m/%Y'),
+                                        "Tipo": "Ausência / A Confirmar",
+                                        "Dias": 1,
+                                        "CID": "-",
+                                        "Motivo": "Não compareceu no turno",
+                                        "dt_falta": data_chamada
+                                    })
+
                             if novas_f:
                                 df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
                                 salvar_faltas(df_faltas)
                                 st.toast(f"✅ Chamada atualizada com sucesso!", icon="📝")
                             else:
                                 salvar_faltas(df_faltas)
-                                st.toast("✅ Chamada gravada! Todos tica-dos estão presentes.", icon="🎉")
+                                st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
                             st.rerun()
 
                     # COMPROVANTE E FORMATO PARA WHATSAPP
                     faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty else pd.DataFrame()
-                    qtd_f_ch = len(faltas_da_chamada)
-                    qtd_p_ch = max(0, len(colabs_ativos) - qtd_f_ch)
+                    qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
+                    qtd_folgas_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Folga Concedida'])
+                    qtd_p_ch = max(0, len(colabs_ativos) - qtd_f_ch - qtd_folgas_ch)
                     
                     st.markdown("---")
                     st.markdown("##### 📲 Resumo Formatado para Envio via WhatsApp / Grupo de Trabalho:")
@@ -665,12 +693,14 @@ if verificar_senha():
                     txt_wa = f"📊 *RESUMO DE PRESENÇA - TROPICAL DISTRIBUIDORA*\n"
                     txt_wa += f"📅 *Data:* {data_chamada.strftime('%d/%m/%Y')} | *Setor:* {setor_selecionado}\n"
                     txt_wa += f"🟢 *Presentes:* {qtd_p_ch} colaboradores\n"
+                    if qtd_folgas_ch > 0:
+                        txt_wa += f"🏖️ *Folgas:* {qtd_folgas_ch} colaboradores\n"
                     txt_wa += f"🔴 *Ausentes/Faltas:* {qtd_f_ch} colaboradores\n\n"
                     
                     if not faltas_da_chamada.empty:
-                        txt_wa += "*Lista de Ausências:*\n"
+                        txt_wa += "*Detalhe do Turno:*\n"
                         for _, f_row in faltas_da_chamada.iterrows():
-                            txt_wa += f"• {f_row['Funcionário']} ({f_row.get('Tipo', 'Falta')}) - {f_row.get('Motivo', '-')}\n"
+                            txt_wa += f"• {f_row['Funcionário']} ({f_row.get('Tipo', 'Ausência')}) - {f_row.get('Motivo', '-')}\n"
                     else:
                         txt_wa += "✨ *Turno com 100% de assiduidade!*\n"
                         
