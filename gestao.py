@@ -604,43 +604,72 @@ if verificar_senha():
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
             
             with tab_chamada:
-                colabs_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo'].copy()
-                if colabs_ativos.empty:
-                    st.warning("Nenhum colaborador ativo no setor para chamada.")
+                # 1. FILTRO DE LIDERANÇA: Oculta cargos de liderança da chamada diária
+                termos_lideranca = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider']
+                colabs_operacionais = df_filtrado[
+                    (df_filtrado['Status'] == 'Ativo') & 
+                    (~df_filtrado['Cargo'].astype(str).str.lower().str.contains('|'.join(termos_lideranca), na=False))
+                ].copy()
+
+                if colabs_operacionais.empty:
+                    st.warning("Nenhum colaborador operacional ativo no setor para chamada.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
                     st.info("💡 **Instruções:** Marque **☑️ Presente** para quem veio e **🏖️ Folga** se for folga programada. Quem ficar desmarcado é contabilizado como **Ausência/Falta**.")
                     
-                    df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
+                    # Carrega registros já salvos nesta data para manter o estado dos botões ao reabrir a tela
+                    faltas_existentes_data = df_faltas[
+                        (df_faltas['dt_falta'] == data_chamada) & 
+                        (df_faltas['Setor'] == setor_selecionado)
+                    ] if not df_faltas.empty else pd.DataFrame()
 
                     with st.form("form_chamada_diaria"):
                         st.markdown("---")
                         presencas = {}
                         folgas = {}
                         
-                        for i_c, (_, colab_c) in enumerate(colabs_ativos.iterrows()):
+                        for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
+                            
+                            # Verifica o status atual já gravado no dia para preencher automaticamente
+                            val_pres_def = False
+                            val_folga_def = False
+                            
+                            if not faltas_existentes_data.empty:
+                                reg_colab = faltas_existentes_data[faltas_existentes_data['Funcionário'] == nome_c]
+                                if not reg_colab.empty:
+                                    tipo_reg = reg_colab.iloc[0].get('Tipo', '')
+                                    if tipo_reg == 'Folga Concedida':
+                                        val_folga_def = True
+                                    else:
+                                        val_pres_def = False
+                                else:
+                                    val_pres_def = True
+                            
                             c_nome, c_pres, c_folga = st.columns([2.5, 1, 1])
                             
                             with c_nome:
                                 st.markdown(f"**{nome_c}**  \n<font size=2 color='#64748B'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
                                 
                             with c_pres:
-                                is_pres = st.checkbox("☑️ Presente", value=False, key=f"chk_pres_{i_c}")
+                                is_pres = st.checkbox("☑️ Presente", value=val_pres_def, key=f"chk_pres_{i_c}")
                                 presencas[nome_c] = is_pres
                                 
                             with c_folga:
-                                is_folga = st.checkbox("🏖️ Folga", value=False, key=f"chk_folga_{i_c}")
+                                is_folga = st.checkbox("🏖️ Folga", value=val_folga_def, key=f"chk_folga_{i_c}")
                                 folgas[nome_c] = is_folga
                             
                         btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia")
                         
                         if btn_salvar_chamada:
+                            # 2. REMOÇÃO SEGURA E ATUALIZAÇÃO SEM PERDER DADOS
+                            df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
+                            
                             novas_f = []
-                            for nome_c in colabs_ativos['Funcionário']:
+                            for nome_c in colabs_operacionais['Funcionário']:
                                 esteve_presente = presencas.get(nome_c, False)
                                 esta_de_folga = folgas.get(nome_c, False)
-                                d_colab = colabs_ativos[colabs_ativos['Funcionário'] == nome_c].iloc[0]
+                                d_colab = colabs_operacionais[colabs_operacionais['Funcionário'] == nome_c].iloc[0]
                                 
                                 if esta_de_folga:
                                     novas_f.append({
@@ -670,16 +699,17 @@ if verificar_senha():
                             if novas_f:
                                 df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
                                 salvar_faltas(df_faltas)
-                                st.toast(f"✅ Chamada atualizada com sucesso!", icon="📝")
+                                st.toast("✅ Chamada atualizada com sucesso!", icon="📝")
                             else:
                                 salvar_faltas(df_faltas)
                                 st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
                             st.rerun()
 
+                    # COMPROVANTE E FORMATO PARA WHATSAPP
                     faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty else pd.DataFrame()
                     qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
                     qtd_folgas_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Folga Concedida'])
-                    qtd_p_ch = max(0, len(colabs_ativos) - qtd_f_ch - qtd_folgas_ch)
+                    qtd_p_ch = max(0, len(colabs_operacionais) - qtd_f_ch - qtd_folgas_ch)
                     
                     st.markdown("---")
                     st.markdown("##### 📲 Resumo Formatado para Envio via WhatsApp / Grupo de Trabalho:")
