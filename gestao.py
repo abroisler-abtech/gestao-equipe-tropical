@@ -63,7 +63,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
               </div>
               <p>Recomendamos alterar sua senha no primeiro acesso utilizando o botão <b>🔑 Senha</b> no menu lateral.</p>
               <hr style="border: 0; border-top: 1px solid #CBD5E1; margin: 20px 0;" />
-              <p style="font-size: 12px; color: #64748B;">Atenciosamente,<br/><b>Tropical Distribuidora</b></p>
+              <p style="font-size: 11px; color: #64748B;">Gestão de Pessoas - Versão 2.0 | Desenvolvido por <b>André Broisler</b></p>
             </div>
           </body>
         </html>
@@ -122,7 +122,7 @@ def gerar_pdf_simples(titulo, colunas, dados):
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1E3A8A"), spaceAfter=15)
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
-    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora</font>", styles['Normal']))
+    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler</font>", styles['Normal']))
     elements.append(Spacer(1, 15))
 
     table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
@@ -163,7 +163,7 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
 
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph("<b>RELATÓRIO GERAL DE DASHBOARD & INDICADORES DA EQUIPE</b>", title_style))
-    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora", sub_style))
+    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler", sub_style))
     elements.append(Spacer(1, 5))
 
     indicadores_data = [
@@ -189,7 +189,7 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements.append(Spacer(1, 5))
     
     cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
+    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
     
     for _, row in df_filtrado[cols_pres].iterrows():
         r_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in row]
@@ -231,6 +231,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito - Gestão de Equipe Tropical")
+        st.caption("💻 **Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -408,7 +409,10 @@ if verificar_senha():
             st.session_state["autenticado"] = False
             st.rerun()
 
+    # TÍTULO PRINCIPAL E SEÇÃO DE AUTORIA DE PROJETO
     st.title("👥 Gestão de Equipe Tropical")
+    st.caption("💻 **Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler**")
+    st.divider()
 
     if not df.empty:
         if 'dt_nasc_dt' in df.columns:
@@ -459,7 +463,6 @@ if verificar_senha():
             qtd_faltantes_hoje = len(faltas_hoje)
             qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje)
 
-            # ALERTAS DE CONTRATO DE EXPERIÊNCIA A VENCER NOS PRÓXIMOS 10 DIAS
             exp_criticos = df_apenas_exp[
                 ((df_apenas_exp['dias_para_45'] >= 0) & (df_apenas_exp['dias_para_45'] <= 10)) | 
                 ((df_apenas_exp['dias_para_90'] >= 0) & (df_apenas_exp['dias_para_90'] <= 10))
@@ -552,7 +555,7 @@ if verificar_senha():
             with g2:
                 if not df_faltas_filtrado.empty:
                     df_tipo_falta = df_faltas_filtrado.groupby('Tipo')['Dias'].sum().reset_index()
-                    fig_faltas = px.bar(df_tipo_falta, x='Tipo', y='Dias', title="Total de Dias Afastados por Tipo (Geral)", text_auto=True, color='Tipo')
+                    fig_faltas = px.bar(df_tipo_falta, x='Tipo', y='Dias', title="Total de Dias Perdidos por Tipo (Geral)", text_auto=True, color='Tipo')
                     st.plotly_chart(fig_faltas, use_container_width=True)
                 else:
                     st.info("Sem dados de ocorrências para gerar o gráfico de ausências.")
