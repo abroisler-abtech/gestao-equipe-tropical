@@ -167,7 +167,7 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
     return output.getvalue()
 
-# --- AUTENTICAÇÃO DINÂMICA ---
+# --- AUTENTICAÇÃO DINÂMICA COM SENHA MESTRE ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
@@ -187,21 +187,30 @@ def verificar_senha():
         btn_entrar = st.button("🔑 Entrar no Sistema")
         
         if btn_entrar:
-            match = df_u[(df_u['Usuario'].astype(str).str.lower() == user_input) & (df_u['Senha'].astype(str) == senha_input)]
-            if not match.empty:
-                usr = match.iloc[0]
+            if user_input == "admin" and senha_input in ["030711", "123"]:
                 st.session_state["autenticado"] = True
-                st.session_state["perfil"] = str(usr['Perfil'])
-                st.session_state["usuario_nome"] = str(usr['Nome'])
-                st.session_state["usuario_login"] = str(usr['Usuario'])
-                
-                mods_raw = str(usr.get('Modulos', ''))
-                st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
-                
-                st.toast(f"Bem-vindo(a), {usr['Nome']}!", icon="👋")
+                st.session_state["perfil"] = "Admin"
+                st.session_state["usuario_nome"] = "Administrador"
+                st.session_state["usuario_login"] = "admin"
+                st.session_state["usuario_modulos"] = TODOS_MODULOS
+                st.toast("Acesso de Administrador Liberado!", icon="🔑")
                 st.rerun()
             else:
-                st.error("❌ Usuário ou senha incorretos.")
+                match = df_u[(df_u['Usuario'].astype(str).str.lower() == user_input) & (df_u['Senha'].astype(str) == senha_input)]
+                if not match.empty:
+                    usr = match.iloc[0]
+                    st.session_state["autenticado"] = True
+                    st.session_state["perfil"] = str(usr['Perfil'])
+                    st.session_state["usuario_nome"] = str(usr['Nome'])
+                    st.session_state["usuario_login"] = str(usr['Usuario'])
+                    
+                    mods_raw = str(usr.get('Modulos', ''))
+                    st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
+                    
+                    st.toast(f"Bem-vindo(a), {usr['Nome']}!", icon="👋")
+                    st.rerun()
+                else:
+                    st.error("❌ Usuário ou senha incorretos.")
         return False
     return True
 
@@ -306,7 +315,7 @@ if verificar_senha():
             mask = (df_u['Usuario'].astype(str).str.lower() == str(usr_logado).lower())
             if mask.any():
                 senha_correta = df_u.loc[mask, 'Senha'].values[0]
-                if str(s_atual) != str(senha_correta):
+                if str(s_atual) != str(senha_correta) and str(s_atual) not in ["030711", "123"]:
                     st.error("❌ Senha atual incorreta!")
                 elif not s_nova:
                     st.warning("⚠️ Digite a nova senha.")
@@ -708,7 +717,6 @@ if verificar_senha():
                             df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
                             salvar_usuarios(df_usuarios)
                             
-                            # Atualiza permissões na hora se for o usuário conectado
                             if str(usr_dados['Usuario']).lower() == str(st.session_state.get("usuario_login")).lower():
                                 st.session_state["usuario_nome"] = str(e_nome).strip()
                                 st.session_state["perfil"] = str(e_perfil)
