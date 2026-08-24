@@ -593,7 +593,11 @@ if verificar_senha():
                     st.warning("Nenhum colaborador ativo no setor para chamada.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
+                    st.info("💡 **Dica:** Marque (tique) os colaboradores conforme chegam no turno e clique em 'Salvar' para contabilizar a chamada de cada turma.")
                     
+                    # Remover ausências anteriores da mesma data ao atualizar chamada do dia
+                    df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
+
                     with st.form("form_chamada_diaria"):
                         st.markdown("---")
                         presencas = {}
@@ -604,7 +608,8 @@ if verificar_senha():
                             c_pres, c_tipo_f, c_obs_f = st.columns([1.5, 1.2, 1.5])
                             
                             with c_pres:
-                                is_pres = st.checkbox(f"**{nome_c}** ({colab_c.get('Cargo', 'N/A')})", value=True, key=f"chk_{i_c}")
+                                # DESMARCADO POR PADRÃO PARA MARCAR CONFORME CHEGAM AS TURMAS
+                                is_pres = st.checkbox(f"**{nome_c}** ({colab_c.get('Cargo', 'N/A')})", value=False, key=f"chk_{i_c}")
                                 presencas[nome_c] = is_pres
                                 
                             with c_tipo_f:
@@ -643,9 +648,10 @@ if verificar_senha():
                             if novas_f:
                                 df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
                                 salvar_faltas(df_faltas)
-                                st.toast(f"✅ Chamada gravada com {len(novas_f)} falta(s)!", icon="📝")
+                                st.toast(f"✅ Chamada atualizada com sucesso!", icon="📝")
                             else:
-                                st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
+                                salvar_faltas(df_faltas)
+                                st.toast("✅ Chamada gravada! Todos tica-dos estão presentes.", icon="🎉")
                             st.rerun()
 
                     # COMPROVANTE E FORMATO PARA WHATSAPP
