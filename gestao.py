@@ -15,17 +15,30 @@ ARQUIVO_DADOS = "equipe.xlsx"
 ARQUIVO_FALTAS = "faltas.xlsx"
 ARQUIVO_USUARIOS = "usuarios.xlsx"
 
-# --- GERENCIAMENTO DE USUÁRIOS ---
+TODOS_MODULOS = [
+    "Dashboard & Alertas",
+    "Chamada & Faltas do Dia",
+    "Controle de Experiência (45/90 dias)",
+    "Escala Inteligente de Férias",
+    "Gestão de Férias (Histórico)",
+    "Aniversariantes do Mês",
+    "Cadastrar / Editar Colaborador",
+    "⚙️ Criar / Gerenciar Usuários",
+    "📥 Importar Nova Base"
+]
+
+# --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES ---
 def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
         df_u.columns = df_u.columns.str.strip()
+        if 'Modulos' not in df_u.columns:
+            df_u['Modulos'] = ",".join(TODOS_MODULOS)
         return df_u
     else:
-        # Usuários padrão iniciais caso o arquivo não exista
         dados_iniciais = [
-            {"Nome": "Administrador", "Usuario": "admin", "Senha": "123", "Perfil": "Admin"},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Senha": "123", "Perfil": "Gestor"}
+            {"Nome": "Administrador", "Usuario": "admin", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS)},
+            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia"}
         ]
         df_u = pd.DataFrame(dados_iniciais)
         df_u.to_excel(ARQUIVO_USUARIOS, index=False)
@@ -152,6 +165,8 @@ def verificar_senha():
         st.session_state["autenticado"] = False
         st.session_state["perfil"] = None
         st.session_state["usuario_nome"] = None
+        st.session_state["usuario_login"] = None
+        st.session_state["usuario_modulos"] = []
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito - Gestão de Equipe Tropical")
@@ -170,7 +185,12 @@ def verificar_senha():
                 st.session_state["autenticado"] = True
                 st.session_state["perfil"] = usr['Perfil']
                 st.session_state["usuario_nome"] = usr['Nome']
-                st.success(f"Acesso liberado! Bem-vindo(a), {usr['Nome']} ({usr['Perfil']})")
+                st.session_state["usuario_login"] = usr['Usuario']
+                
+                mods_raw = str(usr.get('Modulos', ''))
+                st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw else TODOS_MODULOS
+                
+                st.success(f"Acesso liberado! Bem-vindo(a), {usr['Nome']}")
                 st.rerun()
             else:
                 st.error("❌ Usuário ou senha incorretos.")
@@ -264,6 +284,32 @@ if verificar_senha():
                     key=f"pdf_modal_{titulo}"
                 )
 
+    @st.dialog("🔑 Alterar Minha Senha")
+    def modal_alterar_senha():
+        st.subheader("Alterar Minha Senha")
+        df_u = carregar_usuarios()
+        usr_logado = st.session_state.get("usuario_login")
+        
+        s_atual = st.text_input("Senha Atual:", type="password")
+        s_nova = st.text_input("Nova Senha:", type="password")
+        s_conf = st.text_input("Confirme a Nova Senha:", type="password")
+        
+        if st.button("💾 Confirmar Alteração"):
+            mask = (df_u['Usuario'].astype(str).str.lower() == str(usr_logado).lower())
+            if mask.any():
+                senha_correta = df_u.loc[mask, 'Senha'].values[0]
+                if str(s_atual) != str(senha_correta):
+                    st.error("❌ Senha atual incorreta!")
+                elif not s_nova:
+                    st.warning("⚠️ Digite a nova senha.")
+                elif s_nova != s_conf:
+                    st.error("❌ A nova senha e a confirmação não conferem.")
+                else:
+                    df_u.loc[mask, 'Senha'] = str(s_nova)
+                    salvar_usuarios(df_u)
+                    st.success("✅ Senha alterada com sucesso!")
+                    st.rerun()
+
     df = carregar_dados()
     df_faltas = carregar_faltas()
     hoje = date.today()
@@ -271,10 +317,16 @@ if verificar_senha():
     perfil_usuario = st.session_state.get("perfil", "Gestor")
     nome_usuario = st.session_state.get("usuario_nome", "Usuário")
 
-    st.sidebar.caption(f"👤 Conectado como: **{nome_usuario}** ({perfil_usuario})")
-    if st.sidebar.button("🚪 Sair / Desconectar"):
-        st.session_state["autenticado"] = False
-        st.rerun()
+    st.sidebar.caption(f"👤 **{nome_usuario}** ({perfil_usuario})")
+    
+    c_s1, c_s2 = st.sidebar.columns(2)
+    with c_s1:
+        if st.button("🔑 Senha"):
+            modal_alterar_senha()
+    with c_s2:
+        if st.button("🚪 Sair"):
+            st.session_state["autenticado"] = False
+            st.rerun()
 
     st.title("👥 Gestão de Equipe Tropical")
 
@@ -301,23 +353,11 @@ if verificar_senha():
             df_filtrado = df.copy()
             df_faltas_filtrado = df_faltas.copy()
 
-        # RESTRICÃO DE MENUS PELO PERFIL
-        if perfil_usuario == "Gestor":
-            modulos = ["Dashboard & Alertas", "Chamada & Faltas do Dia"]
-        else:
-            modulos = [
-                "Dashboard & Alertas", 
-                "Chamada & Faltas do Dia",
-                "Controle de Experiência (45/90 dias)", 
-                "Escala Inteligente de Férias",
-                "Gestão de Férias (Histórico)", 
-                "Aniversariantes do Mês", 
-                "Cadastrar / Editar Colaborador",
-                "⚙️ Criar / Gerenciar Usuários",
-                "📥 Importar Nova Base"
-            ]
+        modulos_liberados = st.session_state.get("usuario_modulos", TODOS_MODULOS)
+        if not modulos_liberados:
+            modulos_liberados = ["Dashboard & Alertas"]
 
-        menu = st.sidebar.radio("Navegação", modulos)
+        menu = st.sidebar.radio("Navegação", modulos_liberados)
 
         df_exp = df_filtrado.copy()
         df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
@@ -582,40 +622,93 @@ if verificar_senha():
             st.subheader("👥 Gestão do Cadastro de Colaboradores")
 
         elif menu == "⚙️ Criar / Gerenciar Usuários":
-            st.subheader("⚙️ Painel do Administrador - Gestão de Usuários & Senhas")
+            st.subheader("⚙️ Painel do Administrador - Gestão de Usuários & Permissões")
             df_usuarios = carregar_usuarios()
             
-            tab_novo_u, tab_lista_u = st.tabs(["➕ Criar Novo Usuário", "📋 Usuários Cadastrados & Acessos"])
+            tab_novo_u, tab_edit_u, tab_lista_u = st.tabs(["➕ Criar Novo Usuário", "✏️ Editar / Módulos", "📋 Lista de Acessos"])
             
             with tab_novo_u:
                 with st.form("form_novo_usuario", clear_on_submit=True):
                     c_u1, c_u2 = st.columns(2)
-                    nome_u = c_u1.text_input("Nome do Gestor / Usuário:")
+                    nome_u = c_u1.text_input("Nome do Gestor / Colaborador:")
                     login_u = c_u2.text_input("Login de Acesso (Ex: joao.silva):").strip().lower()
                     
                     c_p1, c_p2 = st.columns(2)
                     senha_u = c_p1.text_input("Senha de Acesso:", type="password")
-                    perfil_u = c_p2.selectbox("Perfil de Acesso:", ["Gestor", "Admin"])
+                    perfil_u = c_p2.selectbox("Perfil Geral:", ["Gestor", "Admin"])
                     
-                    btn_cad_u = st.form_submit_button("💾 Salvar Usuário")
+                    st.markdown("##### 📌 Selecione os Módulos Liberados para este Usuário:")
+                    modulos_selecionados = []
+                    cols_mod = st.columns(2)
+                    for idx_m, mod_nome in enumerate(TODOS_MODULOS):
+                        with cols_mod[idx_m % 2]:
+                            default_val = True if perfil_u == "Admin" or mod_nome in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False
+                            if st.checkbox(mod_nome, value=default_val, key=f"mod_cad_{idx_m}"):
+                                modulos_selecionados.append(mod_nome)
+                    
+                    btn_cad_u = st.form_submit_button("💾 Criar Usuário")
                     
                     if btn_cad_u and nome_u and login_u and senha_u:
                         if login_u in df_usuarios['Usuario'].astype(str).str.lower().values:
                             st.error(f"❌ O login '{login_u}' já existe! Escolha outro login.")
+                        elif not modulos_selecionados:
+                            st.warning("⚠️ Selecione pelo menos um módulo para liberar o acesso.")
                         else:
-                            novo_usr = {"Nome": nome_u.strip(), "Usuario": login_u, "Senha": senha_u.strip(), "Perfil": perfil_u}
+                            str_mods = ",".join(modulos_selecionados)
+                            novo_usr = {"Nome": nome_u.strip(), "Usuario": login_u, "Senha": senha_u.strip(), "Perfil": perfil_u, "Modulos": str_mods}
                             df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
-                            st.success(f"✅ Usuário '{login_u}' ({perfil_u}) cadastrado com sucesso!")
+                            st.success(f"✅ Usuário '{login_u}' criado com {len(modulos_selecionados)} módulo(s) liberado(s)!")
+                            st.rerun()
+
+            with tab_edit_u:
+                lista_logins = sorted(df_usuarios['Usuario'].astype(str).unique())
+                usr_sel_edit = st.selectbox("Selecione o Usuário para Editar:", lista_logins)
+                
+                if usr_sel_edit:
+                    idx_u = df_usuarios[df_usuarios['Usuario'].astype(str) == usr_sel_edit].index[0]
+                    usr_dados = df_usuarios.loc[idx_u]
+                    
+                    with st.form("form_edit_usr"):
+                        st.info(f"Editando dados e permissões do usuário **{usr_dados['Usuario']}**")
+                        
+                        e_u1, e_u2 = st.columns(2)
+                        e_nome = e_u1.text_input("Nome:", value=str(usr_dados['Nome']))
+                        e_senha = e_u2.text_input("Senha:", value=str(usr_dados['Senha']), type="password")
+                        
+                        e_p1, _ = st.columns(2)
+                        opts_p = ["Gestor", "Admin"]
+                        idx_p = opts_p.index(usr_dados['Perfil']) if usr_dados['Perfil'] in opts_p else 0
+                        e_perfil = e_p1.selectbox("Perfil Geral:", opts_p, index=idx_p)
+                        
+                        st.markdown("##### 📌 Módulos Liberados:")
+                        mods_atuais = [m.strip() for m in str(usr_dados.get('Modulos', '')).split(',') if m.strip()]
+                        e_modulos = []
+                        cols_e_mod = st.columns(2)
+                        for idx_m, mod_nome in enumerate(TODOS_MODULOS):
+                            with cols_e_mod[idx_m % 2]:
+                                is_chk = mod_nome in mods_atuais
+                                if st.checkbox(mod_nome, value=is_chk, key=f"mod_edit_{idx_m}"):
+                                    e_modulos.append(mod_nome)
+                                    
+                        btn_salvar_edit = st.form_submit_button("✏️ Atualizar Usuário e Permissões")
+                        
+                        if btn_salvar_edit:
+                            df_usuarios.loc[idx_u, 'Nome'] = e_nome.strip()
+                            df_usuarios.loc[idx_u, 'Senha'] = e_senha.strip()
+                            df_usuarios.loc[idx_u, 'Perfil'] = e_perfil
+                            df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
+                            salvar_usuarios(df_usuarios)
+                            st.success(f"✅ Usuário '{usr_sel_edit}' atualizado com sucesso!")
                             st.rerun()
 
             with tab_lista_u:
-                st.markdown("##### 👥 Usuários com acesso ao sistema:")
-                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Perfil']], use_container_width=True)
+                st.markdown("##### 👥 Usuários e Módulos Cadastrados:")
+                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Perfil', 'Modulos']], use_container_width=True)
                 
                 st.markdown("---")
                 st.markdown("##### 🗑️ Excluir Acesso de Usuário")
-                usr_del = st.selectbox("Selecione o usuário para remover:", df_usuarios['Usuario'].dropna().unique())
+                usr_del = st.selectbox("Selecione o usuário para remover:", df_usuarios['Usuario'].dropna().unique(), key="sel_del_u")
                 if st.button("❌ Excluir Usuário Selecionado", type="primary"):
                     if usr_del == "admin":
                         st.error("⚠️ O usuário padrão 'admin' não pode ser excluído.")
