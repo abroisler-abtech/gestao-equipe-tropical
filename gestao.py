@@ -11,7 +11,30 @@ importlib.reload(ferias)
 
 st.set_page_config(page_title="Gestão de Equipe Tropical", page_icon="👥", layout="wide")
 
-# --- GERADOR DE RELATÓRIOS EM PDF PARA IMPRESSÃO ---
+ARQUIVO_DADOS = "equipe.xlsx"
+ARQUIVO_FALTAS = "faltas.xlsx"
+ARQUIVO_USUARIOS = "usuarios.xlsx"
+
+# --- GERENCIAMENTO DE USUÁRIOS ---
+def carregar_usuarios():
+    if os.path.exists(ARQUIVO_USUARIOS):
+        df_u = pd.read_excel(ARQUIVO_USUARIOS)
+        df_u.columns = df_u.columns.str.strip()
+        return df_u
+    else:
+        # Usuários padrão iniciais caso o arquivo não exista
+        dados_iniciais = [
+            {"Nome": "Administrador", "Usuario": "admin", "Senha": "123", "Perfil": "Admin"},
+            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Senha": "123", "Perfil": "Gestor"}
+        ]
+        df_u = pd.DataFrame(dados_iniciais)
+        df_u.to_excel(ARQUIVO_USUARIOS, index=False)
+        return df_u
+
+def salvar_usuarios(df_u):
+    df_u.to_excel(ARQUIVO_USUARIOS, index=False)
+
+# --- GERADOR DE RELATÓRIOS EM PDF ---
 def gerar_pdf_simples(titulo, colunas, dados):
     from reportlab.lib.pagesizes import letter, landscape
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -23,16 +46,7 @@ def gerar_pdf_simples(titulo, colunas, dados):
     elements = []
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        leading=20,
-        textColor=colors.HexColor("#1E3A8A"),
-        spaceAfter=15,
-        alignment=0
-    )
-    
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1E3A8A"), spaceAfter=15)
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
     elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora</font>", styles['Normal']))
@@ -40,10 +54,7 @@ def gerar_pdf_simples(titulo, colunas, dados):
 
     table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
     for linha in dados:
-        row_data = []
-        for item in linha:
-            val_str = str(item) if pd.notnull(item) else ""
-            row_data.append(Paragraph(val_str, styles['Normal']))
+        row_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in linha]
         table_data.append(row_data)
 
     t = Table(table_data, repeatRows=1)
@@ -57,7 +68,6 @@ def gerar_pdf_simples(titulo, colunas, dados):
         ('TOPPADDING', (0,0), (-1,-1), 6),
         ('BOTTOMPADDING', (0,0), (-1,-1), 6),
     ]))
-    
     elements.append(t)
     doc.build(elements)
     pdf_out = buffer.getvalue()
@@ -136,36 +146,38 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
     return output.getvalue()
 
+# --- AUTENTICAÇÃO DINÂMICA ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
+        st.session_state["perfil"] = None
+        st.session_state["usuario_nome"] = None
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito - Gestão de Equipe Tropical")
-        st.info("Por razões de segurança, informe a senha de acesso para continuar.")
+        st.info("Informe seu usuário e senha para entrar no sistema.")
         
-        senha_digitada = st.text_input("Digite a Senha de Acesso:", type="password")
+        df_u = carregar_usuarios()
+        
+        user_input = st.text_input("Usuário:").strip().lower()
+        senha_input = st.text_input("Senha:", type="password")
         btn_entrar = st.button("🔑 Entrar no Sistema")
         
-        try:
-            senha_correta = st.secrets.get("SENHA_ACESSO", "030711")
-        except Exception:
-            senha_correta = "030711"
-        
         if btn_entrar:
-            if senha_digitada == senha_correta or senha_digitada in ["030711", "1234"]:
+            match = df_u[(df_u['Usuario'].astype(str).str.lower() == user_input) & (df_u['Senha'].astype(str) == senha_input)]
+            if not match.empty:
+                usr = match.iloc[0]
                 st.session_state["autenticado"] = True
-                st.success("Acesso liberado!")
+                st.session_state["perfil"] = usr['Perfil']
+                st.session_state["usuario_nome"] = usr['Nome']
+                st.success(f"Acesso liberado! Bem-vindo(a), {usr['Nome']} ({usr['Perfil']})")
                 st.rerun()
             else:
-                st.error("❌ Senha incorreta. Tente novamente.")
+                st.error("❌ Usuário ou senha incorretos.")
         return False
     return True
 
 if verificar_senha():
-    ARQUIVO_DADOS = "equipe.xlsx"
-    ARQUIVO_FALTAS = "faltas.xlsx"
-
     def carregar_dados():
         if os.path.exists(ARQUIVO_DADOS):
             df = pd.read_excel(ARQUIVO_DADOS)
@@ -256,6 +268,10 @@ if verificar_senha():
     df_faltas = carregar_faltas()
     hoje = date.today()
 
+    perfil_usuario = st.session_state.get("perfil", "Gestor")
+    nome_usuario = st.session_state.get("usuario_nome", "Usuário")
+
+    st.sidebar.caption(f"👤 Conectado como: **{nome_usuario}** ({perfil_usuario})")
     if st.sidebar.button("🚪 Sair / Desconectar"):
         st.session_state["autenticado"] = False
         st.rerun()
@@ -285,16 +301,23 @@ if verificar_senha():
             df_filtrado = df.copy()
             df_faltas_filtrado = df_faltas.copy()
 
-        menu = st.sidebar.radio("Navegação", [
-            "Dashboard & Alertas", 
-            "Controle de Experiência (45/90 dias)", 
-            "Escala Inteligente de Férias",
-            "Gestão de Férias (Histórico)", 
-            "Chamada & Faltas do Dia",
-            "Aniversariantes do Mês", 
-            "Cadastrar / Editar Colaborador",
-            "📥 Importar Nova Base"
-        ])
+        # RESTRICÃO DE MENUS PELO PERFIL
+        if perfil_usuario == "Gestor":
+            modulos = ["Dashboard & Alertas", "Chamada & Faltas do Dia"]
+        else:
+            modulos = [
+                "Dashboard & Alertas", 
+                "Chamada & Faltas do Dia",
+                "Controle de Experiência (45/90 dias)", 
+                "Escala Inteligente de Férias",
+                "Gestão de Férias (Histórico)", 
+                "Aniversariantes do Mês", 
+                "Cadastrar / Editar Colaborador",
+                "⚙️ Criar / Gerenciar Usuários",
+                "📥 Importar Nova Base"
+            ]
+
+        menu = st.sidebar.radio("Navegação", modulos)
 
         df_exp = df_filtrado.copy()
         df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
@@ -311,7 +334,6 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
-            # --- APURAÇÃO DE PRESENÇA E FALTAS DO DIA HOJE ---
             faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
             qtd_faltantes_hoje = len(faltas_hoje)
             qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje)
@@ -339,7 +361,6 @@ if verificar_senha():
 
             st.markdown("---")
 
-            # --- PAINEL DE CONTROLE DIÁRIO DE PRESENÇA ---
             p1, p2 = st.columns(2)
             p1.metric("🟢 Presentes Hoje", qtd_presentes_hoje)
             p2.metric("🔴 Faltantes / Ausentes Hoje", qtd_faltantes_hoje)
@@ -413,8 +434,6 @@ if verificar_senha():
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
             
             with tab_chamada:
-                st.markdown("##### 📝 Faça a chamada do dia desmarcando quem não compareceu:")
-                
                 colabs_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo'].copy()
                 if colabs_ativos.empty:
                     st.warning("Nenhum colaborador ativo no setor para chamada.")
@@ -470,9 +489,9 @@ if verificar_senha():
                             if novas_f:
                                 df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
                                 salvar_faltas(df_faltas)
-                                st.success(f"✅ Chamada de {data_chamada.strftime('%d/%m/%Y')} gravada! {len(novas_f)} falta(s) registrada(s).")
+                                st.success(f"✅ Chamada gravada com {len(novas_f)} falta(s) registrada(s)!")
                             else:
-                                st.success(f"✅ Chamada de {data_chamada.strftime('%d/%m/%Y')} gravada! 100% de presença!")
+                                st.success("✅ Chamada gravada! 100% de presença no turno.")
                             st.rerun()
 
             with tab_avulso:
@@ -561,6 +580,50 @@ if verificar_senha():
 
         elif menu == "Cadastrar / Editar Colaborador":
             st.subheader("👥 Gestão do Cadastro de Colaboradores")
+
+        elif menu == "⚙️ Criar / Gerenciar Usuários":
+            st.subheader("⚙️ Painel do Administrador - Gestão de Usuários & Senhas")
+            df_usuarios = carregar_usuarios()
+            
+            tab_novo_u, tab_lista_u = st.tabs(["➕ Criar Novo Usuário", "📋 Usuários Cadastrados & Acessos"])
+            
+            with tab_novo_u:
+                with st.form("form_novo_usuario", clear_on_submit=True):
+                    c_u1, c_u2 = st.columns(2)
+                    nome_u = c_u1.text_input("Nome do Gestor / Usuário:")
+                    login_u = c_u2.text_input("Login de Acesso (Ex: joao.silva):").strip().lower()
+                    
+                    c_p1, c_p2 = st.columns(2)
+                    senha_u = c_p1.text_input("Senha de Acesso:", type="password")
+                    perfil_u = c_p2.selectbox("Perfil de Acesso:", ["Gestor", "Admin"])
+                    
+                    btn_cad_u = st.form_submit_button("💾 Salvar Usuário")
+                    
+                    if btn_cad_u and nome_u and login_u and senha_u:
+                        if login_u in df_usuarios['Usuario'].astype(str).str.lower().values:
+                            st.error(f"❌ O login '{login_u}' já existe! Escolha outro login.")
+                        else:
+                            novo_usr = {"Nome": nome_u.strip(), "Usuario": login_u, "Senha": senha_u.strip(), "Perfil": perfil_u}
+                            df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
+                            salvar_usuarios(df_usuarios)
+                            st.success(f"✅ Usuário '{login_u}' ({perfil_u}) cadastrado com sucesso!")
+                            st.rerun()
+
+            with tab_lista_u:
+                st.markdown("##### 👥 Usuários com acesso ao sistema:")
+                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Perfil']], use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("##### 🗑️ Excluir Acesso de Usuário")
+                usr_del = st.selectbox("Selecione o usuário para remover:", df_usuarios['Usuario'].dropna().unique())
+                if st.button("❌ Excluir Usuário Selecionado", type="primary"):
+                    if usr_del == "admin":
+                        st.error("⚠️ O usuário padrão 'admin' não pode ser excluído.")
+                    else:
+                        df_usuarios = df_usuarios[df_usuarios['Usuario'] != usr_del].reset_index(drop=True)
+                        salvar_usuarios(df_usuarios)
+                        st.success(f"Acesso do usuário '{usr_del}' excluído com sucesso!")
+                        st.rerun()
 
         elif menu == "📥 Importar Nova Base":
             st.subheader("📥 Atualizar Base Geral de Colaboradores (.xlsx)")
