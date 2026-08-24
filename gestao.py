@@ -27,13 +27,12 @@ TODOS_MODULOS = [
     "📥 Importar Nova Base"
 ]
 
-# --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES (TRATAMENTO DE TIPOS) ---
+# --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES ---
 def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
         df_u.columns = df_u.columns.str.strip()
         
-        # Converte todas as colunas para string para evitar conflito de tipos
         for col in ['Nome', 'Usuario', 'Senha', 'Perfil', 'Modulos']:
             if col in df_u.columns:
                 df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
@@ -199,7 +198,7 @@ def verificar_senha():
                 mods_raw = str(usr.get('Modulos', ''))
                 st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
                 
-                st.success(f"Acesso liberado! Bem-vindo(a), {usr['Nome']}")
+                st.toast(f"Bem-vindo(a), {usr['Nome']}!", icon="👋")
                 st.rerun()
             else:
                 st.error("❌ Usuário ou senha incorretos.")
@@ -316,7 +315,7 @@ if verificar_senha():
                 else:
                     df_u.loc[mask, 'Senha'] = str(s_nova)
                     salvar_usuarios(df_u)
-                    st.success("✅ Senha alterada com sucesso!")
+                    st.toast("✅ Senha alterada com sucesso!", icon="🎉")
                     st.rerun()
 
     df = carregar_dados()
@@ -538,9 +537,9 @@ if verificar_senha():
                             if novas_f:
                                 df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
                                 salvar_faltas(df_faltas)
-                                st.success(f"✅ Chamada gravada com {len(novas_f)} falta(s) registrada(s)!")
+                                st.toast(f"✅ Chamada gravada com {len(novas_f)} falta(s)!", icon="📝")
                             else:
-                                st.success("✅ Chamada gravada! 100% de presença no turno.")
+                                st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
                             st.rerun()
 
             with tab_avulso:
@@ -571,7 +570,7 @@ if verificar_senha():
                         }
                         df_faltas = pd.concat([df_faltas, pd.DataFrame([nova_ocorrencia])], ignore_index=True)
                         salvar_faltas(df_faltas)
-                        st.success("Ocorrência avulsa salva!")
+                        st.toast("✅ Ocorrência avulsa salva!", icon="📌")
                         st.rerun()
 
             with tab_hist_f:
@@ -667,7 +666,7 @@ if verificar_senha():
                             novo_usr = {"Nome": str(nome_u).strip(), "Usuario": str(login_u).strip(), "Senha": str(senha_u).strip(), "Perfil": str(perfil_u), "Modulos": str_mods}
                             df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
-                            st.success(f"✅ Usuário '{login_u}' criado com {len(modulos_selecionados)} módulo(s) liberado(s)!")
+                            st.toast(f"✅ Usuário '{login_u}' criado com sucesso!", icon="🎉")
                             st.rerun()
 
             with tab_edit_u:
@@ -708,7 +707,14 @@ if verificar_senha():
                             df_usuarios.loc[idx_u, 'Perfil'] = str(e_perfil)
                             df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
                             salvar_usuarios(df_usuarios)
-                            st.success(f"✅ Usuário '{usr_sel_edit}' atualizado com sucesso!")
+                            
+                            # Atualiza permissões na hora se for o usuário conectado
+                            if str(usr_dados['Usuario']).lower() == str(st.session_state.get("usuario_login")).lower():
+                                st.session_state["usuario_nome"] = str(e_nome).strip()
+                                st.session_state["perfil"] = str(e_perfil)
+                                st.session_state["usuario_modulos"] = e_modulos
+
+                            st.toast(f"✅ Permissões de '{usr_sel_edit}' atualizadas com sucesso!", icon="💾")
                             st.rerun()
 
             with tab_lista_u:
@@ -724,7 +730,7 @@ if verificar_senha():
                     else:
                         df_usuarios = df_usuarios[df_usuarios['Usuario'] != usr_del].reset_index(drop=True)
                         salvar_usuarios(df_usuarios)
-                        st.success(f"Acesso do usuário '{usr_del}' excluído com sucesso!")
+                        st.toast(f"Acesso de '{usr_del}' excluído!", icon="🗑️")
                         st.rerun()
 
         elif menu == "📥 Importar Nova Base":
@@ -733,5 +739,5 @@ if verificar_senha():
             if arquivo_upload is not None and st.button("Confirmar e Substituir Base"):
                 df_novo_up = pd.read_excel(arquivo_upload)
                 df_novo_up.to_excel(ARQUIVO_DADOS, index=False)
-                st.success("Nova base importada com sucesso!")
+                st.toast("Nova base importada com sucesso!", icon="📥")
                 st.rerun()
