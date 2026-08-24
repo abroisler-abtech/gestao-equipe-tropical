@@ -189,7 +189,7 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements.append(Spacer(1, 5))
     
     cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
+    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
     
     for _, row in df_filtrado[cols_pres].iterrows():
         r_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in row]
@@ -409,7 +409,6 @@ if verificar_senha():
             st.session_state["autenticado"] = False
             st.rerun()
 
-    # TÍTULO PRINCIPAL E SEÇÃO DE AUTORIA DE PROJETO
     st.title("👥 Gestão de Equipe Tropical")
     st.caption("💻 **Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler**")
     st.divider()
