@@ -27,12 +27,20 @@ TODOS_MODULOS = [
     "📥 Importar Nova Base"
 ]
 
-# --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES ---
+# --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES (TRATAMENTO DE TIPOS) ---
 def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
         df_u.columns = df_u.columns.str.strip()
-        if 'Modulos' not in df_u.columns:
+        
+        # Converte todas as colunas para string para evitar conflito de tipos
+        for col in ['Nome', 'Usuario', 'Senha', 'Perfil', 'Modulos']:
+            if col in df_u.columns:
+                df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
+            else:
+                df_u[col] = ""
+
+        if 'Modulos' not in df_u.columns or df_u['Modulos'].isnull().all():
             df_u['Modulos'] = ",".join(TODOS_MODULOS)
         return df_u
     else:
@@ -45,6 +53,7 @@ def carregar_usuarios():
         return df_u
 
 def salvar_usuarios(df_u):
+    df_u = df_u.astype(str)
     df_u.to_excel(ARQUIVO_USUARIOS, index=False)
 
 # --- GERADOR DE RELATÓRIOS EM PDF ---
@@ -183,12 +192,12 @@ def verificar_senha():
             if not match.empty:
                 usr = match.iloc[0]
                 st.session_state["autenticado"] = True
-                st.session_state["perfil"] = usr['Perfil']
-                st.session_state["usuario_nome"] = usr['Nome']
-                st.session_state["usuario_login"] = usr['Usuario']
+                st.session_state["perfil"] = str(usr['Perfil'])
+                st.session_state["usuario_nome"] = str(usr['Nome'])
+                st.session_state["usuario_login"] = str(usr['Usuario'])
                 
                 mods_raw = str(usr.get('Modulos', ''))
-                st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw else TODOS_MODULOS
+                st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
                 
                 st.success(f"Acesso liberado! Bem-vindo(a), {usr['Nome']}")
                 st.rerun()
@@ -655,7 +664,7 @@ if verificar_senha():
                             st.warning("⚠️ Selecione pelo menos um módulo para liberar o acesso.")
                         else:
                             str_mods = ",".join(modulos_selecionados)
-                            novo_usr = {"Nome": nome_u.strip(), "Usuario": login_u, "Senha": senha_u.strip(), "Perfil": perfil_u, "Modulos": str_mods}
+                            novo_usr = {"Nome": str(nome_u).strip(), "Usuario": str(login_u).strip(), "Senha": str(senha_u).strip(), "Perfil": str(perfil_u), "Modulos": str_mods}
                             df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
                             st.success(f"✅ Usuário '{login_u}' criado com {len(modulos_selecionados)} módulo(s) liberado(s)!")
@@ -694,9 +703,9 @@ if verificar_senha():
                         btn_salvar_edit = st.form_submit_button("✏️ Atualizar Usuário e Permissões")
                         
                         if btn_salvar_edit:
-                            df_usuarios.loc[idx_u, 'Nome'] = e_nome.strip()
-                            df_usuarios.loc[idx_u, 'Senha'] = e_senha.strip()
-                            df_usuarios.loc[idx_u, 'Perfil'] = e_perfil
+                            df_usuarios.loc[idx_u, 'Nome'] = str(e_nome).strip()
+                            df_usuarios.loc[idx_u, 'Senha'] = str(e_senha).strip()
+                            df_usuarios.loc[idx_u, 'Perfil'] = str(e_perfil)
                             df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
                             salvar_usuarios(df_usuarios)
                             st.success(f"✅ Usuário '{usr_sel_edit}' atualizado com sucesso!")
