@@ -569,7 +569,7 @@ if verificar_senha():
 
             if chamada_realizada and 'Tipo' in chamada_hoje_existente.columns:
                 df_folgas_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] == 'Folga Concedida']
-                df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] != 'Folga Concedida']
+                df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'].isin(['Falta Injustificada', 'Ausência / A Confirmar', 'Atestado Médico'])]
                 
                 qtd_folgas_hoje = len(df_folgas_hoje)
                 qtd_faltantes_hoje = len(df_ausencias_hoje)
@@ -626,8 +626,8 @@ if verificar_senha():
                 st.metric("🟢 Operação Presente Hoje", qtd_presentes_hoje if chamada_realizada else "Pendente")
                 if st.button("🔍 Ver Presentes (Operação)", key="btn_ver_pres_hoje"):
                     if chamada_realizada:
-                        nomes_ausentes_ou_folga = chamada_hoje_existente['Funcionário'].tolist()
-                        df_pres_detalhe = df_ativos_operacional[~df_ativos_operacional['Funcionário'].isin(nomes_ausentes_ou_folga)]
+                        nomes_faltantes_ou_folga = chamada_hoje_existente[chamada_hoje_existente['Tipo'] != 'Presente']['Funcionário'].tolist()
+                        df_pres_detalhe = df_ativos_operacional[~df_ativos_operacional['Funcionário'].isin(nomes_faltantes_ou_folga)]
                         cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
                         exibir_modal_detalhes(f"Operação Presente em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
                     else:
@@ -770,7 +770,7 @@ if verificar_senha():
 
             if not df_pendencias.empty:
                 st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Ausências de dias anteriores que precisam de tratativa do DP.")
-                with st.expander("🚨 **Clique aqui para tratar e regularizar as pendências dos dias anteriores**", expanded=False):
+                with st.expander("🚨 **Clique aqui para tratar e regularizar las pendências dos dias anteriores**", expanded=False):
                     st.caption("Abaixo estão os colaboradores que não compareceram em dias anteriores e ficaram com ausência 'A Confirmar'. Classifique para zerar a pendência.")
                     
                     for idx_p, r_pend in df_pendencias.iterrows():
@@ -813,46 +813,48 @@ if verificar_senha():
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
                     
-                    faltas_existentes_data = df_faltas[
+                    registros_data = df_faltas[
                         (df_faltas['dt_falta'] == data_chamada) & 
                         (df_faltas['Setor'] == setor_selecionado)
                     ] if not df_faltas.empty and 'dt_falta' in df_faltas.columns else pd.DataFrame()
 
-                    chamada_ja_feita = not faltas_existentes_data.empty
-                    
-                    # CONTROLE DA TRAVA DE EDIÇÃO DA CHAMADA
+                    chamada_ja_feita = not registros_data.empty
+
                     if "desbloquear_chamada" not in st.session_state:
                         st.session_state["desbloquear_chamada"] = False
 
+                    disabled_flag = chamada_ja_feita and not st.session_state["desbloquear_chamada"]
+
                     if chamada_ja_feita and not st.session_state["desbloquear_chamada"]:
-                        st.success(f"🔒 **Chamada do dia {data_chamada.strftime('%d/%m/%Y')} já foi realizada e salva!** Os dados estão protegidos contra edições acidentais.")
+                        st.success(f"🔒 **Chamada do dia {data_chamada.strftime('%d/%m/%Y')} já foi realizada e salva!** Opções bloqueadas para evitar duplicidade.")
                         if st.button("🔓 Desbloquear para Reabrir Chamada"):
                             st.session_state["desbloquear_chamada"] = True
                             st.rerun()
                     else:
                         st.info("💡 **Instruções:** Marque a caixa **Presente** para quem veio e **Folga** se for folga programada.")
 
-                    disabled_flag = chamada_ja_feita and not st.session_state["desbloquear_chamada"]
-
                     with st.form("form_chamada_diaria"):
                         st.markdown("---")
                         
                         for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
-                            val_pres_def = False
+                            val_pres_def = True
                             val_folga_def = False
                             
-                            if chamada_ja_feita and 'Tipo' in faltas_existentes_data.columns:
-                                reg_colab = faltas_existentes_data[faltas_existentes_data['Funcionário'] == nome_c]
-                                if reg_colab.empty:
-                                    val_pres_def = True
-                                else:
+                            if chamada_ja_feita and 'Tipo' in registros_data.columns:
+                                reg_colab = registros_data[registros_data['Funcionário'] == nome_c]
+                                if not reg_colab.empty:
                                     tipo_reg = reg_colab.iloc[0].get('Tipo', '')
                                     if tipo_reg == 'Folga Concedida':
+                                        val_pres_def = False
                                         val_folga_def = True
+                                    elif tipo_reg in ['Falta Injustificada', 'Ausência / A Confirmar', 'Atestado Médico']:
+                                        val_pres_def = False
+                                        val_folga_def = False
                                     elif 'Presente' in tipo_reg:
                                         val_pres_def = True
-                            
+                                        val_folga_def = False
+
                             c_nome, c_pres, c_folga = st.columns([2.5, 1, 1])
                             with c_nome:
                                 st.markdown(f"**{nome_c}**  \n<font size=2 color='#CBD5E1'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
@@ -885,7 +887,19 @@ if verificar_senha():
                                         "Motivo": "Folga Programada / Escala",
                                         "dt_falta": data_chamada
                                     })
-                                elif not esteve_presente:
+                                elif esteve_presente:
+                                    novas_f.append({
+                                        "Matricula": str(colab_c.get('Matricula', '')),
+                                        "Funcionário": nome_c,
+                                        "Setor": colab_c.get('Setor', ''),
+                                        "Data": data_chamada.strftime('%d/%m/%Y'),
+                                        "Tipo": "Presente",
+                                        "Dias": 0,
+                                        "CID": "-",
+                                        "Motivo": "Compareceu ao turno",
+                                        "dt_falta": data_chamada
+                                    })
+                                else:
                                     tipo_inicial = "Ausência / A Confirmar" if data_chamada < hoje else "Falta Injustificada"
                                     novas_f.append({
                                         "Matricula": str(colab_c.get('Matricula', '')),
@@ -899,18 +913,17 @@ if verificar_senha():
                                         "dt_falta": data_chamada
                                     })
 
-                            if novas_f:
-                                df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
-                                salvar_faltas(df_faltas)
-                                st.toast("✅ Chamada registrada com sucesso!", icon="📝")
-                            else:
-                                salvar_faltas(df_faltas)
-                                st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
+                            df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
+                            salvar_faltas(df_faltas)
+                            st.toast("✅ Chamada gravada e bloqueada contra alterações!", icon="🎉")
                             
                             st.session_state["desbloquear_chamada"] = False
                             st.rerun()
 
-                    faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns else pd.DataFrame()
+                    faltas_da_chamada = df_faltas_filtrado[
+                        (df_faltas_filtrado['dt_falta'] == data_chamada) & 
+                        (df_faltas_filtrado['Tipo'] != 'Presente')
+                    ] if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns else pd.DataFrame()
                     
                     if not faltas_da_chamada.empty and 'Tipo' in faltas_da_chamada.columns:
                         qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
