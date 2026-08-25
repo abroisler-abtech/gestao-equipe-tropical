@@ -556,14 +556,24 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
-            faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
-            
-            df_folgas_hoje = faltas_hoje[faltas_hoje['Tipo'] == 'Folga Concedida'] if not faltas_hoje.empty else pd.DataFrame()
-            df_ausencias_hoje = faltas_hoje[faltas_hoje['Tipo'] != 'Folga Concedida'] if not faltas_hoje.empty else pd.DataFrame()
-            
-            qtd_folgas_hoje = len(df_folgas_hoje)
-            qtd_faltantes_hoje = len(df_ausencias_hoje)
-            qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje - qtd_folgas_hoje)
+            # VERIFICA SE A CHAMADA DO DIA JÁ FOI FEITA
+            chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
+            chamada_realizada = not chamada_hoje_existente.empty
+
+            if chamada_realizada:
+                df_folgas_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] == 'Folga Concedida']
+                df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] != 'Folga Concedida']
+                
+                qtd_folgas_hoje = len(df_folgas_hoje)
+                qtd_faltantes_hoje = len(df_ausencias_hoje)
+                qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje - qtd_folgas_hoje)
+            else:
+                qtd_presentes_hoje = 0
+                qtd_folgas_hoje = 0
+                qtd_faltantes_hoje = 0
+                df_folgas_hoje = pd.DataFrame()
+                df_ausencias_hoje = pd.DataFrame()
+                st.info("📌 **Aviso:** A chamada do dia de hoje ainda não foi iniciada. Vá no menu 'Chamada & Faltas do Dia' para registrar a frequência.")
 
             # ALERTA DE OCORRÊNCIAS PENDENTES DE DIAS ANTERIORES
             pendencias_ant = df_faltas_filtrado[
@@ -607,24 +617,27 @@ if verificar_senha():
             p1, p2, p3 = st.columns(3)
             
             with p1:
-                st.metric("🟢 Presentes Hoje", qtd_presentes_hoje)
+                st.metric("🟢 Presentes Hoje", qtd_presentes_hoje if chamada_realizada else "Pendente")
                 if st.button("🔍 Ver Presentes de Hoje", key="btn_ver_pres_hoje"):
-                    nomes_ausentes_ou_folga = faltas_hoje['Funcionário'].tolist() if not faltas_hoje.empty else []
-                    df_pres_detalhe = df_ativos[~df_ativos['Funcionário'].isin(nomes_ausentes_ou_folga)]
-                    cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
-                    exibir_modal_detalhes(f"Colaboradores Presentes em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
+                    if chamada_realizada:
+                        nomes_ausentes_ou_folga = chamada_hoje_existente['Funcionário'].tolist()
+                        df_pres_detalhe = df_ativos[~df_ativos['Funcionário'].isin(nomes_ausentes_ou_folga)]
+                        cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
+                        exibir_modal_detalhes(f"Colaboradores Presentes em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
+                    else:
+                        st.warning("Realize a chamada do dia primeiro.")
                     
             with p2:
-                st.metric("🏖️ Folgas Hoje", qtd_folgas_hoje)
+                st.metric("🏖️ Folgas Hoje", qtd_folgas_hoje if chamada_realizada else "Pendente")
                 if st.button("🔍 Ver Folgas de Hoje", key="btn_ver_folgas_hoje"):
                     cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Motivo'] if c in df_folgas_hoje.columns]
-                    exibir_modal_detalhes(f"Colaboradores de Folga em {hoje.strftime('%d/%m/%Y')}", df_folgas_hoje[cols_m] if not df_folgas_hoje.empty else pd.DataFrame())
+                    exibir_modal_detalhes(f"Colaboradores de Folga em {hoje.strftime('%d/%m/%Y')}", df_folgas_hoje if not df_folgas_hoje.empty else pd.DataFrame())
 
             with p3:
-                st.metric("🔴 Faltantes / Ausentes Hoje", qtd_faltantes_hoje)
+                st.metric("🔴 Faltantes / Ausentes Hoje", qtd_faltantes_hoje if chamada_realizada else "Pendente")
                 if st.button("🔍 Ver Faltantes de Hoje", key="btn_ver_faltas_hoje"):
                     cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Motivo'] if c in df_ausencias_hoje.columns]
-                    exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje[cols_m] if not df_ausencias_hoje.empty else pd.DataFrame())
+                    exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
 
             st.markdown("---")
 
@@ -657,7 +670,7 @@ if verificar_senha():
             c5.metric("Faltas Hoje", qtd_faltantes_hoje)
             if c5.button("🔍 Ver Faltas", key="btn_faltas_quadro"):
                 cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in df_ausencias_hoje.columns]
-                exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje[cols_m] if not df_ausencias_hoje.empty else pd.DataFrame())
+                exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
 
             niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
             c6.metric("Aniversariantes", len(niver_mes))
