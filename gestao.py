@@ -705,7 +705,7 @@ if verificar_senha():
             st.subheader("🤖 Assistente de Inteligência Artificial — Tropical DP")
             st.caption("Pergunte qualquer dúvida sobre a equipe, relatórios, absenteísmo ou férias!")
 
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+            gemini_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
             if not gemini_key:
                 st.warning("⚠️ **Chave da API Gemini não configurada!** Adicione `GEMINI_API_KEY` nos *Secrets* do Streamlit para ativar a IA.")
@@ -770,7 +770,7 @@ if verificar_senha():
 
             if not df_pendencias.empty:
                 st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Ausências de dias anteriores que precisam de tratativa do DP.")
-                with st.expander("🚨 **Clique aqui para tratar e regularizar las pendências dos dias anteriores**", expanded=False):
+                with st.expander("🚨 **Clique aqui para tratar e regularizar as pendências dos dias anteriores**", expanded=False):
                     st.caption("Abaixo estão os colaboradores que não compareceram em dias anteriores e ficaram com ausência 'A Confirmar'. Classifique para zerar a pendência.")
                     
                     for idx_p, r_pend in df_pendencias.iterrows():
