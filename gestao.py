@@ -674,7 +674,7 @@ if verificar_senha():
                     st.warning("Nenhum colaborador operacional ativo no setor para chamada.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
-                    st.info("💡 **Instruções:** Marque a caixa **Presente** para quem veio e **Folga** se for folga programada. Quem ficar desmarcado é contabilizado como ausência.")
+                    st.info("💡 **Instruções:** Marque a caixa **Presente** para quem veio e **Folga** se for folga programada.")
                     
                     faltas_existentes_data = df_faltas[
                         (df_faltas['dt_falta'] == data_chamada) & 
@@ -686,7 +686,7 @@ if verificar_senha():
                         
                         for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
-                            val_pres_def = True
+                            val_pres_def = False
                             val_folga_def = False
                             
                             if not faltas_existentes_data.empty:
@@ -695,9 +695,8 @@ if verificar_senha():
                                     tipo_reg = reg_colab.iloc[0].get('Tipo', '')
                                     if tipo_reg == 'Folga Concedida':
                                         val_folga_def = True
-                                        val_pres_def = False
-                                    elif 'A Confirmar' in tipo_reg or 'Falta' in tipo_reg or 'Atestado' in tipo_reg:
-                                        val_pres_def = False
+                                    elif 'Presente' in tipo_reg or tipo_reg == '':
+                                        val_pres_def = True
                             
                             c_nome, c_pres, c_folga = st.columns([2.5, 1, 1])
                             with c_nome:
