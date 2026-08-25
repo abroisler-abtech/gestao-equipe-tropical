@@ -20,7 +20,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS (VERDE TROPICAL NA SIDEBAR) ---
+# --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -91,6 +91,7 @@ TODOS_MODULOS = [
     "Dashboard & Alertas",
     "🤖 Assistente de IA do Gestor",
     "Chamada & Faltas do Dia",
+    "👔 Quadro de Liderança",
     "👤 Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
     "Escala Inteligente de Férias",
@@ -101,6 +102,14 @@ TODOS_MODULOS = [
     "⚙️ Criar / Gerenciar Usuários",
     "📥 Importar Nova Base"
 ]
+
+TERMOS_LIDERANCA = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider', 'diretor']
+
+def eh_lideranca(cargo_str):
+    if not cargo_str or pd.isna(cargo_str):
+        return False
+    cargo_low = str(cargo_str).lower()
+    return any(t in cargo_low for t in TERMOS_LIDERANCA)
 
 def gerar_link_whatsapp(telefone, nome_usuario, login_acesso, senha_acesso):
     num_limpo = "".join(filter(str.isdigit, str(telefone)))
@@ -270,7 +279,6 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements.append(Spacer(1, 5))
     
     cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
-    
     table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
     
     for _, row in df_filtrado[cols_pres].iterrows():
@@ -316,7 +324,6 @@ def verificar_senha():
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
-        
         user_input = st.text_input("E-mail ou Usuário:").strip().lower()
         senha_input = st.text_input("Senha:", type="password")
         btn_entrar = st.button("🔑 Entrar no Sistema")
@@ -410,7 +417,6 @@ if verificar_senha():
             df_f = pd.read_excel(ARQUIVO_FALTAS)
             df_f.columns = df_f.columns.str.strip()
             
-            # GARANTE QUE TODAS AS COLUNAS OBRIGATÓRIAS EXISTAM
             for col in cols_padrao:
                 if col not in df_f.columns and col != 'dt_falta':
                     df_f[col] = ""
@@ -548,11 +554,13 @@ if verificar_senha():
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral de Indicadores")
             
-            df_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo']
+            # SEPARAÇÃO EXCLUSIVA DE OPERAÇÃO VS LIDERANÇA
+            df_ativos_geral = df_filtrado[df_filtrado['Status'] == 'Ativo']
+            df_ativos_operacional = df_ativos_geral[~df_ativos_geral['Cargo'].apply(eh_lideranca)]
+            
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
-            # TRATAMENTO CORRETO DO CONTADOR
             if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns:
                 chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje]
             else:
@@ -566,7 +574,7 @@ if verificar_senha():
                 
                 qtd_folgas_hoje = len(df_folgas_hoje)
                 qtd_faltantes_hoje = len(df_ausencias_hoje)
-                qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje - qtd_folgas_hoje)
+                qtd_presentes_hoje = max(0, len(df_ativos_operacional) - qtd_faltantes_hoje - qtd_folgas_hoje)
             else:
                 qtd_presentes_hoje = 0
                 qtd_folgas_hoje = 0
@@ -601,7 +609,7 @@ if verificar_senha():
                 )
             with cd2:
                 pdf_dash = gerar_pdf_dashboard_completo(
-                    setor_selecionado, df_filtrado, len(df_filtrado), len(df_ativos), len(df_ferias_st), len(df_afastados), qtd_faltantes_hoje
+                    setor_selecionado, df_filtrado, len(df_filtrado), len(df_ativos_operacional), len(df_ferias_st), len(df_afastados), qtd_faltantes_hoje
                 )
                 st.download_button(
                     label="🖨️ Imprimir Relatório Geral do Dashboard (PDF)",
@@ -616,13 +624,13 @@ if verificar_senha():
             p1, p2, p3 = st.columns(3)
             
             with p1:
-                st.metric("🟢 Presentes Hoje", qtd_presentes_hoje if chamada_realizada else "Pendente")
-                if st.button("🔍 Ver Presentes de Hoje", key="btn_ver_pres_hoje"):
+                st.metric("🟢 Operação Presente Hoje", qtd_presentes_hoje if chamada_realizada else "Pendente")
+                if st.button("🔍 Ver Presentes (Operação)", key="btn_ver_pres_hoje"):
                     if chamada_realizada:
                         nomes_ausentes_ou_folga = chamada_hoje_existente['Funcionário'].tolist()
-                        df_pres_detalhe = df_ativos[~df_ativos['Funcionário'].isin(nomes_ausentes_ou_folga)]
+                        df_pres_detalhe = df_ativos_operacional[~df_ativos_operacional['Funcionário'].isin(nomes_ausentes_ou_folga)]
                         cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
-                        exibir_modal_detalhes(f"Colaboradores Presentes em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
+                        exibir_modal_detalhes(f"Operação Presente em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
                     else:
                         st.warning("Realize a chamada do dia primeiro.")
                     
@@ -651,10 +659,10 @@ if verificar_senha():
                 cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
                 exibir_modal_detalhes("Quadro Geral de Colaboradores", df_filtrado[cols_m])
                 
-            c2.metric("Ativos", len(df_ativos))
-            if c2.button("🔍 Ver Ativos", key="btn_ativos"):
-                cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos.columns]
-                exibir_modal_detalhes("Colaboradores Ativos no Quadro", df_ativos[cols_m])
+            c2.metric("Ativos Operacionais", len(df_ativos_operacional))
+            if c2.button("🔍 Ver Operação", key="btn_ativos"):
+                cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos_operacional.columns]
+                exibir_modal_detalhes("Equipe Operacional Ativa", df_ativos_operacional[cols_m])
 
             c3.metric("Em Férias", len(df_ferias_st))
             if c3.button("🔍 Ver Férias", key="btn_ferias"):
@@ -796,10 +804,9 @@ if verificar_senha():
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
             
             with tab_chamada:
-                termos_lideranca = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider']
                 colabs_operacionais = df_filtrado[
                     (df_filtrado['Status'] == 'Ativo') & 
-                    (~df_filtrado['Cargo'].astype(str).str.lower().str.contains('|'.join(termos_lideranca), na=False))
+                    (~df_filtrado['Cargo'].apply(eh_lideranca))
                 ].copy()
 
                 if colabs_operacionais.empty:
@@ -901,7 +908,7 @@ if verificar_senha():
                     
                     txt_wa = f"📊 *RESUMO DE PRESENÇA - TROPICAL DISTRIBUIDORA*\n"
                     txt_wa += f"📅 *Data:* {data_chamada.strftime('%d/%m/%Y')} | *Setor:* {setor_selecionado}\n"
-                    txt_wa += f"🟢 *Presentes:* {qtd_p_ch} colaboradores\n"
+                    txt_wa += f"🟢 *Presentes (Operação):* {qtd_p_ch} colaboradores\n"
                     if qtd_folgas_ch > 0:
                         txt_wa += f"🏖️ *Folgas:* {qtd_folgas_ch} colaboradores\n"
                     txt_wa += f"🔴 *Ausentes/Faltas:* {qtd_f_ch} colaboradores\n\n"
@@ -911,7 +918,7 @@ if verificar_senha():
                         for _, f_row in faltas_da_chamada.iterrows():
                             txt_wa += f"• {f_row['Funcionário']} ({f_row.get('Tipo', 'Ausência')}) - {f_row.get('Motivo', '-')}\n"
                     else:
-                        txt_wa += "✨ *Turno com 100% de assiduidade!*\n"
+                        txt_wa += "✨ *Turno operacional com 100% de assiduidade!*\n"
                         
                     st.code(txt_wa, language="markdown")
 
@@ -951,6 +958,23 @@ if verificar_senha():
                     st.info("Nenhum registro cadastrado até o momento.")
                 else:
                     st.dataframe(df_faltas_filtrado, use_container_width=True)
+
+        elif menu == "👔 Quadro de Liderança":
+            st.subheader(f"👔 Quadro Geral de Liderança - {setor_selecionado}")
+            st.caption("Visão dedicada para Gerentes, Supervisores, Encarregados e Coordenadores.")
+            
+            df_lideres = df_filtrado[df_filtrado['Cargo'].apply(eh_lideranca)].copy()
+            
+            if df_lideres.empty:
+                st.info("Nenhum cargo de liderança identificado para este setor.")
+            else:
+                l1, l2 = st.columns(2)
+                l1.metric("Total de Líderes", len(df_lideres))
+                l2.metric("Líderes Ativos", len(df_lideres[df_lideres['Status'] == 'Ativo']))
+                
+                st.markdown("---")
+                cols_lid = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão', 'Contato'] if c in df_lideres.columns]
+                st.dataframe(df_lideres[cols_lid], use_container_width=True)
 
         elif menu == "👤 Ficha Individual do Colaborador":
             st.subheader("👤 Prontuário & Ficha Individual 360º")
