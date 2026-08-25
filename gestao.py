@@ -422,6 +422,7 @@ if verificar_senha():
         if os.path.exists(ARQUIVO_FALTAS):
             df_f = pd.read_excel(ARQUIVO_FALTAS)
             df_f.columns = df_f.columns.str.strip()
+            # Tratamento rigoroso para conversão das datas gravadas
             df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
             return df_f
         else:
@@ -556,7 +557,7 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
-            # VERIFICA SE A CHAMADA DO DIA JÁ FOI FEITA
+            # VALIDAÇÃO SE A CHAMADA DE HOJE JÁ FOI SALVA
             chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
             chamada_realizada = not chamada_hoje_existente.empty
 
@@ -573,7 +574,7 @@ if verificar_senha():
                 qtd_faltantes_hoje = 0
                 df_folgas_hoje = pd.DataFrame()
                 df_ausencias_hoje = pd.DataFrame()
-                st.info("📌 **Aviso:** A chamada do dia de hoje ainda não foi iniciada. Vá no menu 'Chamada & Faltas do Dia' para registrar a frequência.")
+                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada. Vá no menu 'Chamada & Faltas do Dia' para registrar a frequência.")
 
             # ALERTA DE OCORRÊNCIAS PENDENTES DE DIAS ANTERIORES
             pendencias_ant = df_faltas_filtrado[
