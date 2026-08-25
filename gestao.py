@@ -19,7 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- INJEÇÃO CORRETA DE META TAGS PWA ---
+# --- INJEÇÃO DE META TAGS PWA ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -674,7 +674,7 @@ if verificar_senha():
                     st.warning("Nenhum colaborador operacional ativo no setor para chamada.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
-                    st.info("💡 **Instruções:** Marque **☑️ Presente** para quem veio e **🏖️ Folga** se for folga programada. Quem ficar desmarcado é contabilizado como ausência.")
+                    st.info("💡 **Instruções:** Marque a caixa **Presente** para quem veio e **Folga** se for folga programada. Quem ficar desmarcado é contabilizado como ausência.")
                     
                     faltas_existentes_data = df_faltas[
                         (df_faltas['dt_falta'] == data_chamada) & 
@@ -703,9 +703,9 @@ if verificar_senha():
                             with c_nome:
                                 st.markdown(f"**{nome_c}**  \n<font size=2 color='#64748B'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
                             with c_pres:
-                                st.checkbox("☑️ Presente", value=val_pres_def, key=f"chk_pres_{i_c}")
+                                st.checkbox("Presente", value=val_pres_def, key=f"chk_pres_{i_c}")
                             with c_folga:
-                                st.checkbox("🏖️ Folga", value=val_folga_def, key=f"chk_folga_{i_c}")
+                                st.checkbox("Folga", value=val_folga_def, key=f"chk_folga_{i_c}")
                             
                         btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia")
                         
