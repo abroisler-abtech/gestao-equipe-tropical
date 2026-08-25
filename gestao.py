@@ -554,7 +554,6 @@ if verificar_senha():
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral de Indicadores")
             
-            # SEPARAÇÃO EXCLUSIVA DE OPERAÇÃO VS LIDERANÇA
             df_ativos_geral = df_filtrado[df_filtrado['Status'] == 'Ativo']
             df_ativos_operacional = df_ativos_geral[~df_ativos_geral['Cargo'].apply(eh_lideranca)]
             
@@ -813,12 +812,27 @@ if verificar_senha():
                     st.warning("Nenhum colaborador operacional ativo no setor para chamada.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
-                    st.info("💡 **Instruções:** Marque a caixa **Presente** para quem veio e **Folga** se for folga programada.")
                     
                     faltas_existentes_data = df_faltas[
                         (df_faltas['dt_falta'] == data_chamada) & 
                         (df_faltas['Setor'] == setor_selecionado)
                     ] if not df_faltas.empty and 'dt_falta' in df_faltas.columns else pd.DataFrame()
+
+                    chamada_ja_feita = not faltas_existentes_data.empty
+                    
+                    # CONTROLE DA TRAVA DE EDIÇÃO DA CHAMADA
+                    if "desbloquear_chamada" not in st.session_state:
+                        st.session_state["desbloquear_chamada"] = False
+
+                    if chamada_ja_feita and not st.session_state["desbloquear_chamada"]:
+                        st.success(f"🔒 **Chamada do dia {data_chamada.strftime('%d/%m/%Y')} já foi realizada e salva!** Os dados estão protegidos contra edições acidentais.")
+                        if st.button("🔓 Desbloquear para Reabrir Chamada"):
+                            st.session_state["desbloquear_chamada"] = True
+                            st.rerun()
+                    else:
+                        st.info("💡 **Instruções:** Marque a caixa **Presente** para quem veio e **Folga** se for folga programada.")
+
+                    disabled_flag = chamada_ja_feita and not st.session_state["desbloquear_chamada"]
 
                     with st.form("form_chamada_diaria"):
                         st.markdown("---")
@@ -828,26 +842,28 @@ if verificar_senha():
                             val_pres_def = False
                             val_folga_def = False
                             
-                            if not faltas_existentes_data.empty and 'Tipo' in faltas_existentes_data.columns:
+                            if chamada_ja_feita and 'Tipo' in faltas_existentes_data.columns:
                                 reg_colab = faltas_existentes_data[faltas_existentes_data['Funcionário'] == nome_c]
-                                if not reg_colab.empty:
+                                if reg_colab.empty:
+                                    val_pres_def = True
+                                else:
                                     tipo_reg = reg_colab.iloc[0].get('Tipo', '')
                                     if tipo_reg == 'Folga Concedida':
                                         val_folga_def = True
-                                    elif 'Presente' in tipo_reg or tipo_reg == '':
+                                    elif 'Presente' in tipo_reg:
                                         val_pres_def = True
                             
                             c_nome, c_pres, c_folga = st.columns([2.5, 1, 1])
                             with c_nome:
                                 st.markdown(f"**{nome_c}**  \n<font size=2 color='#CBD5E1'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
                             with c_pres:
-                                st.checkbox("Presente", value=val_pres_def, key=f"chk_pres_{i_c}")
+                                st.checkbox("Presente", value=val_pres_def, disabled=disabled_flag, key=f"chk_pres_{i_c}")
                             with c_folga:
-                                st.checkbox("Folga", value=val_folga_def, key=f"chk_folga_{i_c}")
+                                st.checkbox("Folga", value=val_folga_def, disabled=disabled_flag, key=f"chk_folga_{i_c}")
                             
-                        btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia")
+                        btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia", disabled=disabled_flag)
                         
-                        if btn_salvar_chamada:
+                        if btn_salvar_chamada and not disabled_flag:
                             if not df_faltas.empty and 'dt_falta' in df_faltas.columns:
                                 df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
                             
@@ -890,6 +906,8 @@ if verificar_senha():
                             else:
                                 salvar_faltas(df_faltas)
                                 st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
+                            
+                            st.session_state["desbloquear_chamada"] = False
                             st.rerun()
 
                     faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns else pd.DataFrame()
