@@ -32,24 +32,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
-# --- CONFIGURAÇÃO DE ÍCONE E NOME PARA INSTALAÇÃO NO CELULAR (PWA) ---
-URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
-
-st.markdown(f"""
-    <head>
-        <!-- Nome do App ao Instalar na Tela Inicial -->
-        <meta name="apple-mobile-web-app-title" content="Painel Gestão & DP">
-        <meta name="application-name" content="Painel Gestão & DP">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="mobile-web-app-capable" content="yes">
-        
-        <!-- Ícone Personalizado -->
-        <link rel="apple-touch-icon" href="{URL_LOGO_TROPICAL}">
-        <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
-    </head>
-""", unsafe_allow_html=True)
-
 ARQUIVO_DADOS = "equipe.xlsx"
 ARQUIVO_FALTAS = "faltas.xlsx"
 ARQUIVO_USUARIOS = "usuarios.xlsx"
