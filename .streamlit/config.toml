@@ -1,9 +1,9 @@
 [theme]
 base = "dark"
-primaryColor = "#FF6B00"          # Laranja cítrico vibrante da Tropical (Botões, destaques e seleções)
-backgroundColor = "#0E1117"       # Preto/grafite profundo de fundo
-secondaryBackgroundColor = "#1E293B" # Cinza escuro elegante para cartões, menus e caixas
-textColor = "#FFFFFF"             # Texto em branco puro para leitura e contraste perfeitos
+primaryColor = "#FF6B00"          # Laranja da Tropical para seleções e destaques
+backgroundColor = "#0E1117"       # Fundo principal escuro
+secondaryBackgroundColor = "#1B3B2B" # Verde escuro da Tropical para a sidebar/menus
+textColor = "#FFFFFF"
 font = "sans serif"
 
 [client]
