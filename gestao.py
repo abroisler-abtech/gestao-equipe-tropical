@@ -405,13 +405,23 @@ if verificar_senha():
             return pd.DataFrame()
 
     def carregar_faltas():
+        cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
         if os.path.exists(ARQUIVO_FALTAS):
             df_f = pd.read_excel(ARQUIVO_FALTAS)
             df_f.columns = df_f.columns.str.strip()
-            df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
+            
+            # GARANTE QUE TODAS AS COLUNAS OBRIGATÓRIAS EXISTAM
+            for col in cols_padrao:
+                if col not in df_f.columns and col != 'dt_falta':
+                    df_f[col] = ""
+                    
+            if 'Data' in df_f.columns and not df_f.empty:
+                df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
+            else:
+                df_f['dt_falta'] = None
             return df_f
         else:
-            return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"])
+            return pd.DataFrame(columns=cols_padrao)
 
     def salvar_dados(df_salvar):
         cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
@@ -543,14 +553,14 @@ if verificar_senha():
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
             # TRATAMENTO CORRETO DO CONTADOR
-            if not df_faltas_filtrado.empty:
+            if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns:
                 chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje]
             else:
                 chamada_hoje_existente = pd.DataFrame()
                 
             chamada_realizada = not chamada_hoje_existente.empty
 
-            if chamada_realizada:
+            if chamada_realizada and 'Tipo' in chamada_hoje_existente.columns:
                 df_folgas_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] == 'Folga Concedida']
                 df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] != 'Folga Concedida']
                 
@@ -568,7 +578,7 @@ if verificar_senha():
             pendencias_ant = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
                 (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
-            ] if not df_faltas_filtrado.empty else pd.DataFrame()
+            ] if not df_faltas_filtrado.empty and 'Tipo' in df_faltas_filtrado.columns else pd.DataFrame()
 
             if not pendencias_ant.empty:
                 st.error(f"🚨 **ALERTA DE DP:** Existem {len(pendencias_ant)} ausência(s) de dias anteriores pendentes de classificação!")
@@ -677,7 +687,7 @@ if verificar_senha():
                 st.plotly_chart(fig_status, use_container_width=True)
                 
             with g2:
-                if not df_faltas_filtrado.empty:
+                if not df_faltas_filtrado.empty and 'Tipo' in df_faltas_filtrado.columns and 'Dias' in df_faltas_filtrado.columns:
                     df_tipo_falta = df_faltas_filtrado.groupby('Tipo')['Dias'].sum().reset_index()
                     fig_faltas = px.bar(df_tipo_falta, x='Tipo', y='Dias', title="Total de Dias Perdidos por Tipo (Geral)", text_auto=True, color='Tipo')
                     st.plotly_chart(fig_faltas, use_container_width=True)
@@ -713,7 +723,7 @@ if verificar_senha():
                                 client = genai.Client(api_key=gemini_key)
                                 
                                 resumo_equipe = df_filtrado[['Funcionário', 'Setor', 'Cargo', 'Status']].to_string(index=False)
-                                resumo_faltas = df_faltas_filtrado[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].tail(30).to_string(index=False) if not df_faltas_filtrado.empty else "Sem faltas registradas"
+                                resumo_faltas = df_faltas_filtrado[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].tail(30).to_string(index=False) if not df_faltas_filtrado.empty and 'Tipo' in df_faltas_filtrado.columns else "Sem faltas registradas"
 
                                 contexto_prompt = f"""
                                 Você é o Assistente Virtual de DP e Gestão da Tropical Distribuidora.
@@ -749,7 +759,7 @@ if verificar_senha():
             df_pendencias = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
                 (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
-            ].copy() if not df_faltas_filtrado.empty else pd.DataFrame()
+            ].copy() if not df_faltas_filtrado.empty and 'Tipo' in df_faltas_filtrado.columns else pd.DataFrame()
 
             if not df_pendencias.empty:
                 st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Ausências de dias anteriores que precisam de tratativa do DP.")
@@ -801,7 +811,7 @@ if verificar_senha():
                     faltas_existentes_data = df_faltas[
                         (df_faltas['dt_falta'] == data_chamada) & 
                         (df_faltas['Setor'] == setor_selecionado)
-                    ] if not df_faltas.empty else pd.DataFrame()
+                    ] if not df_faltas.empty and 'dt_falta' in df_faltas.columns else pd.DataFrame()
 
                     with st.form("form_chamada_diaria"):
                         st.markdown("---")
@@ -811,7 +821,7 @@ if verificar_senha():
                             val_pres_def = False
                             val_folga_def = False
                             
-                            if not faltas_existentes_data.empty:
+                            if not faltas_existentes_data.empty and 'Tipo' in faltas_existentes_data.columns:
                                 reg_colab = faltas_existentes_data[faltas_existentes_data['Funcionário'] == nome_c]
                                 if not reg_colab.empty:
                                     tipo_reg = reg_colab.iloc[0].get('Tipo', '')
@@ -831,7 +841,8 @@ if verificar_senha():
                         btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia")
                         
                         if btn_salvar_chamada:
-                            df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
+                            if not df_faltas.empty and 'dt_falta' in df_faltas.columns:
+                                df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
                             
                             novas_f = []
                             for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
@@ -874,9 +885,15 @@ if verificar_senha():
                                 st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
                             st.rerun()
 
-                    faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty else pd.DataFrame()
-                    qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
-                    qtd_folgas_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Folga Concedida'])
+                    faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns else pd.DataFrame()
+                    
+                    if not faltas_da_chamada.empty and 'Tipo' in faltas_da_chamada.columns:
+                        qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
+                        qtd_folgas_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Folga Concedida'])
+                    else:
+                        qtd_f_ch = 0
+                        qtd_folgas_ch = 0
+                        
                     qtd_p_ch = max(0, len(colabs_operacionais) - qtd_f_ch - qtd_folgas_ch)
                     
                     st.markdown("---")
@@ -961,7 +978,8 @@ if verificar_senha():
                 if f_colab.empty:
                     st.success("Nenhuma ocorrência ou falta registrada para este colaborador.")
                 else:
-                    st.dataframe(f_colab[['Data', 'Tipo', 'Dias', 'CID', 'Motivo']], use_container_width=True)
+                    cols_f_ver = [c for c in ['Data', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in f_colab.columns]
+                    st.dataframe(f_colab[cols_f_ver], use_container_width=True)
 
         elif menu == "📊 Indicadores de Frequência & Absenteísmo":
             st.subheader("📊 Painel Analítico de Assiduidade & Ocorrências")
@@ -969,15 +987,16 @@ if verificar_senha():
                 st.info("Nenhuma ocorrência registrada no período para gerar análise gráfica.")
             else:
                 m1, m2, m3 = st.columns(3)
-                tot_dias_perdidos = df_faltas_filtrado['Dias'].sum()
-                tot_atestados = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Atestado Médico'])
-                tot_faltas_injust = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Falta Injustificada'])
+                tot_dias_perdidos = df_faltas_filtrado['Dias'].sum() if 'Dias' in df_faltas_filtrado.columns else 0
+                tot_atestados = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Atestado Médico']) if 'Tipo' in df_faltas_filtrado.columns else 0
+                tot_faltas_injust = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Falta Injustificada']) if 'Tipo' in df_faltas_filtrado.columns else 0
                 m1.metric("Total Dias Afastados", tot_dias_perdidos)
                 m2.metric("Ocorrências Atestado", tot_atestados)
                 m3.metric("Faltas Injustificadas", tot_faltas_injust)
                 st.divider()
-                fig_setor = px.histogram(df_faltas_filtrado, x='Setor', y='Dias', color='Tipo', barmode='group', title="Total de Dias Perdidos por Setor")
-                st.plotly_chart(fig_setor, use_container_width=True)
+                if 'Setor' in df_faltas_filtrado.columns and 'Dias' in df_faltas_filtrado.columns and 'Tipo' in df_faltas_filtrado.columns:
+                    fig_setor = px.histogram(df_faltas_filtrado, x='Setor', y='Dias', color='Tipo', barmode='group', title="Total de Dias Perdidos por Setor")
+                    st.plotly_chart(fig_setor, use_container_width=True)
 
         elif menu == "Controle de Experiência (45/90 dias)":
             st.subheader(f"📋 Colaboradores em Período de Experiência e Ações - {setor_selecionado}")
