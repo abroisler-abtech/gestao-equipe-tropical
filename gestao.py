@@ -601,6 +601,48 @@ if verificar_senha():
         elif menu == "Chamada & Faltas do Dia":
             st.subheader(f"📌 Chamada Diária de Presença & Ocorrências - {setor_selecionado}")
             
+            # --- PAINEL DINÂMICO DE OCORRÊNCIAS / PENDÊNCIAS A VERIFICAR ---
+            df_pendencias = df_faltas_filtrado[
+                (df_faltas_filtrado['dt_falta'] < hoje) & 
+                (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
+            ].copy() if not df_faltas_filtrado.empty else pd.DataFrame()
+
+            if not df_pendencias.empty:
+                st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Existem ausências não regularizadas de dias anteriores.")
+                with st.expander("🚨 **Clique aqui para regularizar as ausências pendentes dos dias anteriores**", expanded=True):
+                    st.caption("Abaixo estão as ausências registradas em dias anteriores que ainda precisam ser classificadas (Atestado Médico, Falta Injustificada, etc.).")
+                    
+                    for idx_p, r_pend in df_pendencias.iterrows():
+                        p_col1, p_col2, p_col3, p_col4 = st.columns([2, 1.5, 1.5, 1])
+                        with p_col1:
+                            st.markdown(f"👤 **{r_pend['Funcionário']}**  \n📅 Data: `{r_pend['Data']}` | Setor: `{r_pend['Setor']}`")
+                        
+                        with p_col2:
+                            novo_tipo = st.selectbox(
+                                "Nova Classificação", 
+                                ["Falta Injustificada", "Atestado Médico", "Folga Concedida", "Justificado (Remover Ocorrência)"], 
+                                key=f"sel_tipo_p_{idx_p}"
+                            )
+                        
+                        with p_col3:
+                            novo_cid = st.text_input("CID (Se Atestado)", value="", key=f"cid_p_{idx_p}") if novo_tipo == "Atestado Médico" else "-"
+                            
+                        with p_col4:
+                            if st.button("💾 Resolver", key=f"btn_res_{idx_p}"):
+                                # Atualiza ou remove o registro de pendência
+                                mask_orig = (df_faltas['Funcionário'] == r_pend['Funcionário']) & (df_faltas['Data'] == r_pend['Data'])
+                                if novo_tipo == "Justificado (Remover Ocorrência)":
+                                    df_faltas = df_faltas[~mask_orig].reset_index(drop=True)
+                                else:
+                                    df_faltas.loc[mask_orig, 'Tipo'] = novo_tipo
+                                    df_faltas.loc[mask_orig, 'CID'] = novo_cid.upper() if novo_cid else "-"
+                                    df_faltas.loc[mask_orig, 'Motivo'] = f"Regularizado em {hoje.strftime('%d/%m/%Y')}"
+                                
+                                salvar_faltas(df_faltas)
+                                st.toast("✅ Ocorrência regularizada!", icon="🎉")
+                                st.rerun()
+                    st.markdown("---")
+
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
             
             with tab_chamada:
