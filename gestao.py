@@ -14,19 +14,19 @@ import streamlit as st
 importlib.reload(ferias)
 
 st.set_page_config(
-    page_title="Gestão de Pessoas & DP — Tropical", 
-    page_icon="👥", 
+    page_title="Painel de Gestão & DP — Tropical", 
+    page_icon="🍊", 
     layout="wide"
 )
 
-# --- CONFIGURAÇÃO DE ÍCONE E NOME PARA INSTALAÇÃO (PWA / TELA INICIAL) ---
-URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"  # Link base de ícone de gestão/DP
+# --- CONFIGURAÇÃO DE ÍCONE E NOME PARA INSTALAÇÃO NO CELULAR (PWA) ---
+URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(f"""
     <head>
         <!-- Nome do App ao Instalar na Tela Inicial -->
-        <meta name="apple-mobile-web-app-title" content="Tropical DP">
-        <meta name="application-name" content="Tropical DP">
+        <meta name="apple-mobile-web-app-title" content="Painel Gestão & DP">
+        <meta name="application-name" content="Painel Gestão & DP">
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="mobile-web-app-capable" content="yes">
         
@@ -63,7 +63,7 @@ def gerar_link_whatsapp(telefone, nome_usuario, login_acesso, senha_acesso):
     conf_email = st.secrets.get("email", {})
     url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
     
-    texto_msg = f"""🔑 *ACESSO AO SISTEMA - GESTÃO DE PESSOAS & DP*
+    texto_msg = f"""🔑 *ACESSO AO SISTEMA - PAINEL DE GESTÃO & DP*
 
 Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liberado.
 
@@ -71,7 +71,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.0 - Desenvolvido por André Broisler_"""
 
     texto_encoded = urllib.parse.quote(texto_msg)
     return f"https://wa.me/{num_limpo}?text={texto_encoded}"
@@ -90,7 +90,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
             return False, "Servidor de e-mail não configurado. Utilize o link direto de envio por WhatsApp."
 
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = "🔑 Seu Acesso ao Sistema - Gestão de Pessoas & DP Tropical"
+        msg["Subject"] = "🔑 Seu Acesso ao Sistema - Painel de Gestão & DP Tropical"
         msg["From"] = remetente
         msg["To"] = destino_email
 
@@ -98,16 +98,16 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
         <html>
           <body style="font-family: Arial, sans-serif; color: #1E293B; line-height: 1.6;">
             <div style="max-width: 600px; margin: 0 auto; border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px;">
-              <h2 style="color: #1E3A8A; margin-top: 0;">Olá, {nome_usuario}!</h2>
-              <p>Seu acesso ao painel de <b>Gestão de Pessoas & DP da Tropical Distribuidora</b> foi liberado.</p>
-              <div style="background-color: #F8FAFC; padding: 15px; border-radius: 6px; margin: 15px 0;">
+              <h2 style="color: #1B3B2B; margin-top: 0;">Olá, {nome_usuario}!</h2>
+              <p>Seu acesso ao <b>Painel de Gestão & DP da Tropical Distribuidora</b> foi liberado.</p>
+              <div style="background-color: #F0F7F4; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <p style="margin: 5px 0;"><b>Link de Acesso:</b> <a href="{url_app}" target="_blank">{url_app}</a></p>
                 <p style="margin: 5px 0;"><b>Login (E-mail/Usuário):</b> {login_acesso}</p>
                 <p style="margin: 5px 0;"><b>Senha de Acesso:</b> {senha_acesso}</p>
               </div>
               <p>Recomendamos alterar sua senha no primeiro acesso utilizando o botão <b>🔑 Senha</b> no menu lateral.</p>
               <hr style="border: 0; border-top: 1px solid #CBD5E1; margin: 20px 0;" />
-              <p style="font-size: 11px; color: #64748B;">Gestão de Pessoas & DP Versão 2.0 | Desenvolvido por <b>André Broisler</b></p>
+              <p style="font-size: 11px; color: #64748B;">Painel de Gestão & DP Versão 2.0 | Desenvolvido por <b>André Broisler</b></p>
             </div>
           </body>
         </html>
@@ -163,10 +163,10 @@ def gerar_pdf_simples(titulo, colunas, dados):
     elements = []
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1E3A8A"), spaceAfter=15)
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1B3B2B"), spaceAfter=15)
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
-    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler</font>", styles['Normal']))
+    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora — Painel de Gestão & DP Versão 2.0 - Desenvolvido por André Broisler</font>", styles['Normal']))
     elements.append(Spacer(1, 15))
 
     table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
@@ -202,12 +202,12 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements = []
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=15, leading=18, textColor=colors.HexColor("#1E3A8A"), spaceAfter=5)
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=15, leading=18, textColor=colors.HexColor("#1B3B2B"), spaceAfter=5)
     sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor("#475569"), spaceAfter=10)
 
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph("<b>RELATÓRIO GERAL DE DASHBOARD & INDICADORES DA EQUIPE</b>", title_style))
-    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler", sub_style))
+    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora — Painel de Gestão & DP Versão 2.0 - Desenvolvido por André Broisler", sub_style))
     elements.append(Spacer(1, 5))
 
     indicadores_data = [
@@ -216,11 +216,11 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     ]
     t_ind = Table(indicadores_data, colWidths=[130]*5)
     t_ind.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1B3B2B")),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F1F5F9")),
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F0F7F4")),
         ('TEXTCOLOR', (0,1), (-1,1), colors.HexColor("#0F172A")),
         ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
         ('TOPPADDING', (0,0), (-1,-1), 6),
@@ -274,8 +274,8 @@ def verificar_senha():
         st.session_state["usuario_modulos"] = []
 
     if not st.session_state["autenticado"]:
-        st.title("🔒 Acesso Restrito - Gestão de Pessoas & DP Tropical")
-        st.caption("💻 **Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler**")
+        st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.0**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -453,8 +453,8 @@ if verificar_senha():
             st.session_state["autenticado"] = False
             st.rerun()
 
-    st.title("👥 Gestão de Pessoas & DP — Tropical")
-    st.caption("💻 **Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler**")
+    st.title("🍊 Painel de Gestão & DP — Tropical")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.0**")
     st.divider()
 
     if not df.empty:
