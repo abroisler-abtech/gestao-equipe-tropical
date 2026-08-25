@@ -1,11 +1,7 @@
 [theme]
-primaryColor = "#73C631"          # Verde Folha/Lima vibrante da fachada Tropical
-backgroundColor = "#FFFFFF"       # Fundo branco
-secondaryBackgroundColor = "#F3F8F1" # Fundo secundário suave com tom verde bem claro
-textColor = "#1D321F"             # Verde escuro profundo para excelente leitura
-
-[client]
-toolbarMode = "minimal"
-
-[browser]
-stheme = "light"
+base = "dark"
+primaryColor = "#1B3B2B"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1E293B"
+textColor = "#FAFAFA"
+font = "sans serif"
