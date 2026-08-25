@@ -13,7 +13,28 @@ import streamlit as st
 
 importlib.reload(ferias)
 
-st.set_page_config(page_title="Gestão de Equipe Tropical", page_icon="👥", layout="wide")
+st.set_page_config(
+    page_title="Gestão de Pessoas & DP — Tropical", 
+    page_icon="👥", 
+    layout="wide"
+)
+
+# --- CONFIGURAÇÃO DE ÍCONE E NOME PARA INSTALAÇÃO (PWA / TELA INICIAL) ---
+URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"  # Link base de ícone de gestão/DP
+
+st.markdown(f"""
+    <head>
+        <!-- Nome do App ao Instalar na Tela Inicial -->
+        <meta name="apple-mobile-web-app-title" content="Tropical DP">
+        <meta name="application-name" content="Tropical DP">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="mobile-web-app-capable" content="yes">
+        
+        <!-- Ícone Personalizado -->
+        <link rel="apple-touch-icon" href="{URL_LOGO_TROPICAL}">
+        <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
+    </head>
+""", unsafe_allow_html=True)
 
 ARQUIVO_DADOS = "equipe.xlsx"
 ARQUIVO_FALTAS = "faltas.xlsx"
@@ -42,7 +63,7 @@ def gerar_link_whatsapp(telefone, nome_usuario, login_acesso, senha_acesso):
     conf_email = st.secrets.get("email", {})
     url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
     
-    texto_msg = f"""🔑 *ACESSO AO SISTEMA - GESTÃO DE PESSOAS*
+    texto_msg = f"""🔑 *ACESSO AO SISTEMA - GESTÃO DE PESSOAS & DP*
 
 Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liberado.
 
@@ -50,7 +71,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler_"""
+_Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler_"""
 
     texto_encoded = urllib.parse.quote(texto_msg)
     return f"https://wa.me/{num_limpo}?text={texto_encoded}"
@@ -69,7 +90,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
             return False, "Servidor de e-mail não configurado. Utilize o link direto de envio por WhatsApp."
 
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = "🔑 Seu Acesso ao Sistema - Gestão de Equipe Tropical"
+        msg["Subject"] = "🔑 Seu Acesso ao Sistema - Gestão de Pessoas & DP Tropical"
         msg["From"] = remetente
         msg["To"] = destino_email
 
@@ -78,7 +99,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
           <body style="font-family: Arial, sans-serif; color: #1E293B; line-height: 1.6;">
             <div style="max-width: 600px; margin: 0 auto; border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px;">
               <h2 style="color: #1E3A8A; margin-top: 0;">Olá, {nome_usuario}!</h2>
-              <p>Seu acesso ao painel de <b>Gestão de Equipe da Tropical Distribuidora</b> foi liberado.</p>
+              <p>Seu acesso ao painel de <b>Gestão de Pessoas & DP da Tropical Distribuidora</b> foi liberado.</p>
               <div style="background-color: #F8FAFC; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <p style="margin: 5px 0;"><b>Link de Acesso:</b> <a href="{url_app}" target="_blank">{url_app}</a></p>
                 <p style="margin: 5px 0;"><b>Login (E-mail/Usuário):</b> {login_acesso}</p>
@@ -86,7 +107,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
               </div>
               <p>Recomendamos alterar sua senha no primeiro acesso utilizando o botão <b>🔑 Senha</b> no menu lateral.</p>
               <hr style="border: 0; border-top: 1px solid #CBD5E1; margin: 20px 0;" />
-              <p style="font-size: 11px; color: #64748B;">Gestão de Pessoas Versão 2.0 | Desenvolvido por <b>André Broisler</b></p>
+              <p style="font-size: 11px; color: #64748B;">Gestão de Pessoas & DP Versão 2.0 | Desenvolvido por <b>André Broisler</b></p>
             </div>
           </body>
         </html>
@@ -145,7 +166,7 @@ def gerar_pdf_simples(titulo, colunas, dados):
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1E3A8A"), spaceAfter=15)
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
-    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler</font>", styles['Normal']))
+    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler</font>", styles['Normal']))
     elements.append(Spacer(1, 15))
 
     table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
@@ -186,7 +207,7 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
 
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
     elements.append(Paragraph("<b>RELATÓRIO GERAL DE DASHBOARD & INDICADORES DA EQUIPE</b>", title_style))
-    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler", sub_style))
+    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora — Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler", sub_style))
     elements.append(Spacer(1, 5))
 
     indicadores_data = [
@@ -253,8 +274,8 @@ def verificar_senha():
         st.session_state["usuario_modulos"] = []
 
     if not st.session_state["autenticado"]:
-        st.title("🔒 Acesso Restrito - Gestão de Equipe Tropical")
-        st.caption("💻 **Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler**")
+        st.title("🔒 Acesso Restrito - Gestão de Pessoas & DP Tropical")
+        st.caption("💻 **Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -432,8 +453,8 @@ if verificar_senha():
             st.session_state["autenticado"] = False
             st.rerun()
 
-    st.title("👥 Gestão de Equipe Tropical")
-    st.caption("💻 **Gestão de Pessoas Versão 2.0 - Desenvolvido por André Broisler**")
+    st.title("👥 Gestão de Pessoas & DP — Tropical")
+    st.caption("💻 **Gestão de Pessoas & DP Versão 2.0 - Desenvolvido por André Broisler**")
     st.divider()
 
     if not df.empty:
@@ -489,6 +510,15 @@ if verificar_senha():
             qtd_folgas_hoje = len(df_folgas_hoje)
             qtd_faltantes_hoje = len(df_ausencias_hoje)
             qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje - qtd_folgas_hoje)
+
+            # ALERTA DE OCORRÊNCIAS PENDENTES DE DIAS ANTERIORES
+            pendencias_ant = df_faltas_filtrado[
+                (df_faltas_filtrado['dt_falta'] < hoje) & 
+                (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
+            ] if not df_faltas_filtrado.empty else pd.DataFrame()
+
+            if not pendencias_ant.empty:
+                st.error(f"🚨 **ALERTA DE DP:** Existem {len(pendencias_ant)} ausência(s) de dias anteriores pendentes de classificação!")
 
             exp_criticos = df_apenas_exp[
                 ((df_apenas_exp['dias_para_45'] >= 0) & (df_apenas_exp['dias_para_45'] <= 10)) | 
@@ -601,16 +631,16 @@ if verificar_senha():
         elif menu == "Chamada & Faltas do Dia":
             st.subheader(f"📌 Chamada Diária de Presença & Ocorrências - {setor_selecionado}")
             
-            # --- PAINEL DINÂMICO DE OCORRÊNCIAS / PENDÊNCIAS A VERIFICAR ---
+            # --- VIRADA DO DIA: PAINEL DE OCORRÊNCIAS A VERIFICAR ---
             df_pendencias = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
                 (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
             ].copy() if not df_faltas_filtrado.empty else pd.DataFrame()
 
             if not df_pendencias.empty:
-                st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Existem ausências não regularizadas de dias anteriores.")
-                with st.expander("🚨 **Clique aqui para regularizar as ausências pendentes dos dias anteriores**", expanded=True):
-                    st.caption("Abaixo estão as ausências registradas em dias anteriores que ainda precisam ser classificadas (Atestado Médico, Falta Injustificada, etc.).")
+                st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Ausências de dias anteriores que precisam de tratativa do DP.")
+                with st.expander("🚨 **Clique aqui para tratar e regularizar as pendências dos dias anteriores**", expanded=True):
+                    st.caption("Abaixo estão os colaboradores que não comparaceram e ficaram com ausência 'A Confirmar'. Classifique a ocorrência para zerar a pendência.")
                     
                     for idx_p, r_pend in df_pendencias.iterrows():
                         p_col1, p_col2, p_col3, p_col4 = st.columns([2, 1.5, 1.5, 1])
@@ -629,17 +659,16 @@ if verificar_senha():
                             
                         with p_col4:
                             if st.button("💾 Resolver", key=f"btn_res_{idx_p}"):
-                                # Atualiza ou remove o registro de pendência
                                 mask_orig = (df_faltas['Funcionário'] == r_pend['Funcionário']) & (df_faltas['Data'] == r_pend['Data'])
                                 if novo_tipo == "Justificado (Remover Ocorrência)":
                                     df_faltas = df_faltas[~mask_orig].reset_index(drop=True)
                                 else:
                                     df_faltas.loc[mask_orig, 'Tipo'] = novo_tipo
                                     df_faltas.loc[mask_orig, 'CID'] = novo_cid.upper() if novo_cid else "-"
-                                    df_faltas.loc[mask_orig, 'Motivo'] = f"Regularizado em {hoje.strftime('%d/%m/%Y')}"
+                                    df_faltas.loc[mask_orig, 'Motivo'] = f"Tratado pelo DP em {hoje.strftime('%d/%m/%Y')}"
                                 
                                 salvar_faltas(df_faltas)
-                                st.toast("✅ Ocorrência regularizada!", icon="🎉")
+                                st.toast("✅ Ocorrência regularizada com sucesso!", icon="🎉")
                                 st.rerun()
                     st.markdown("---")
 
@@ -870,10 +899,10 @@ if verificar_senha():
         elif menu == "Escala Inteligente de Férias":
             ferias.renderizar_modulo_ferias(df)
 
-        elif menu == "🏖️ Colaboradores em Férias" or menu == "Gestão de Férias (Histórico)":
-            st.subheader(f"🏖️ Colaboradores Atual e Programados em Férias - {setor_selecionado}")
+        elif menu == "🏖️ Colaboradores em Férias":
+            st.subheader(f"🏖️ Colaboradores em Gozo de Férias & Programados - {setor_selecionado}")
             
-            tab_f_atuais, tab_f_prog = st.tabs(["🌴 Em Gozo de Férias Agora", "📅 Próximas Férias Registradas"])
+            tab_f_atuais, tab_f_prog = st.tabs(["🌴 Em Gozo de Férias Agora", "📅 Próximas Férias Agendadas"])
             
             with tab_f_atuais:
                 df_em_ferias = df_filtrado[df_filtrado['Status'] == 'Férias'].copy()
@@ -886,7 +915,7 @@ if verificar_senha():
             with tab_f_prog:
                 df_com_ferias_reg = df_filtrado[df_filtrado['Ultimas_Ferias'].notnull()].copy()
                 if df_com_ferias_reg.empty:
-                    st.info("Nenhum registro de agendamento de férias encontrado.")
+                    st.info("Nenhum agendamento futuro de férias registrado.")
                 else:
                     cols_f_prog = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias', 'Status'] if c in df_com_ferias_reg.columns]
                     st.dataframe(df_com_ferias_reg[cols_f_prog], use_container_width=True)
