@@ -19,7 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS (DARK + LARANJA TROPICAL) ---
+# --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS (VERDE TROPICAL NA SIDEBAR) ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -30,10 +30,18 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
-        /* Fundo escuro elegante */
+        /* Fundo escuro principal */
         .stApp {{
             background-color: #0E1117;
             color: #FFFFFF;
+        }}
+        
+        /* BARRA LATERAL (SIDEBAR) NO VERDE DA TROPICAL */
+        [data-testid="stSidebar"] {{
+            background-color: #1B3B2B !important;
+        }}
+        [data-testid="stSidebar"] * {{
+            color: #FFFFFF !important;
         }}
         
         /* Botões em destaque no Laranja Tropical */
@@ -52,7 +60,7 @@ st.markdown(
             transform: translateY(-2px);
         }}
         
-        /* Botões de Download em Laranja Suave com Borda */
+        /* Botões de Download em fundo escuro com Borda Laranja */
         div.stDownloadButton > button {{
             background-color: #1E293B !important;
             color: #FF6B00 !important;
@@ -66,14 +74,14 @@ st.markdown(
             border-color: #FF6B00 !important;
         }}
         
-        /* Cartões de Métricas e Indicadores com Borda Laranja */
+        /* Cartões de Métricas e Indicadores */
         [data-testid="stMetricValue"] {{
             color: #FF6B00 !important;
             font-size: 2rem !important;
             font-weight: bold !important;
         }}
         
-        /* Estilização dos Módulos das Abas (Tabs) */
+        /* Estilização das Abas (Tabs) */
         button[data-baseweb="tab"] {{
             color: #94A3B8 !important;
             font-weight: bold !important;
@@ -755,7 +763,7 @@ if verificar_senha():
                             
                             c_nome, c_pres, c_folga = st.columns([2.5, 1, 1])
                             with c_nome:
-                                st.markdown(f"**{nome_c}**  \n<font size=2 color='#64748B'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
+                                st.markdown(f"**{nome_c}**  \n<font size=2 color='#CBD5E1'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
                             with c_pres:
                                 st.checkbox("Presente", value=val_pres_def, key=f"chk_pres_{i_c}")
                             with c_folga:
