@@ -19,7 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- INJEÇÃO DE META TAGS PWA ---
+# --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS (DARK + LARANJA TROPICAL) ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -28,6 +28,61 @@ st.markdown(
     <meta name="application-name" content="Painel Gestão & DP">
     <link rel="apple-touch-icon" href="{URL_LOGO_TROPICAL}">
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
+    
+    <style>
+        /* Fundo escuro elegante */
+        .stApp {{
+            background-color: #0E1117;
+            color: #FFFFFF;
+        }}
+        
+        /* Botões em destaque no Laranja Tropical */
+        div.stButton > button {{
+            background-color: #FF6B00 !important;
+            color: #FFFFFF !important;
+            border-radius: 12px !important;
+            border: none !important;
+            font-weight: bold !important;
+            padding: 10px 16px !important;
+            box-shadow: 0 4px 10px rgba(255, 107, 0, 0.3) !important;
+            transition: all 0.3s ease !important;
+        }}
+        div.stButton > button:hover {{
+            background-color: #E05E00 !important;
+            transform: translateY(-2px);
+        }}
+        
+        /* Botões de Download em Laranja Suave com Borda */
+        div.stDownloadButton > button {{
+            background-color: #1E293B !important;
+            color: #FF6B00 !important;
+            border: 2px solid #FF6B00 !important;
+            border-radius: 12px !important;
+            font-weight: bold !important;
+        }}
+        
+        /* Checkboxes e seleções no Laranja */
+        div[data-baseweb="checkbox"] span {{
+            border-color: #FF6B00 !important;
+        }}
+        
+        /* Cartões de Métricas e Indicadores com Borda Laranja */
+        [data-testid="stMetricValue"] {{
+            color: #FF6B00 !important;
+            font-size: 2rem !important;
+            font-weight: bold !important;
+        }}
+        
+        /* Estilização dos Módulos das Abas (Tabs) */
+        button[data-baseweb="tab"] {{
+            color: #94A3B8 !important;
+            font-weight: bold !important;
+        }}
+        button[aria-selected="true"] {{
+            color: #FF6B00 !important;
+            border-bottom-color: #FF6B00 !important;
+        }}
+    </style>
     """,
     unsafe_allow_html=True
 )
