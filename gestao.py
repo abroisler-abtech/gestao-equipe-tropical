@@ -10,6 +10,7 @@ import ferias
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from google import genai
 
 importlib.reload(ferias)
 
@@ -30,21 +31,16 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
-        /* Fundo escuro principal */
         .stApp {{
             background-color: #0E1117;
             color: #FFFFFF;
         }}
-        
-        /* BARRA LATERAL (SIDEBAR) NO VERDE DA TROPICAL */
         [data-testid="stSidebar"] {{
             background-color: #1B3B2B !important;
         }}
         [data-testid="stSidebar"] * {{
             color: #FFFFFF !important;
         }}
-        
-        /* Botões em destaque no Laranja Tropical */
         div.stButton > button {{
             background-color: #FF6B00 !important;
             color: #FFFFFF !important;
@@ -59,8 +55,6 @@ st.markdown(
             background-color: #E05E00 !important;
             transform: translateY(-2px);
         }}
-        
-        /* Botões de Download em fundo escuro com Borda Laranja */
         div.stDownloadButton > button {{
             background-color: #1E293B !important;
             color: #FF6B00 !important;
@@ -68,20 +62,14 @@ st.markdown(
             border-radius: 12px !important;
             font-weight: bold !important;
         }}
-        
-        /* Checkboxes e seleções no Laranja */
         div[data-baseweb="checkbox"] span {{
             border-color: #FF6B00 !important;
         }}
-        
-        /* Cartões de Métricas e Indicadores */
         [data-testid="stMetricValue"] {{
             color: #FF6B00 !important;
             font-size: 2rem !important;
             font-weight: bold !important;
         }}
-        
-        /* Estilização das Abas (Tabs) */
         button[data-baseweb="tab"] {{
             color: #94A3B8 !important;
             font-weight: bold !important;
@@ -101,6 +89,7 @@ ARQUIVO_USUARIOS = "usuarios.xlsx"
 
 TODOS_MODULOS = [
     "Dashboard & Alertas",
+    "🤖 Assistente de IA do Gestor",
     "Chamada & Faltas do Dia",
     "👤 Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
@@ -113,7 +102,6 @@ TODOS_MODULOS = [
     "📥 Importar Nova Base"
 ]
 
-# --- GERADOR DE LINK PARA O WHATSAPP ---
 def gerar_link_whatsapp(telefone, nome_usuario, login_acesso, senha_acesso):
     num_limpo = "".join(filter(str.isdigit, str(telefone)))
     if not num_limpo.startswith("55") and len(num_limpo) in [10, 11]:
@@ -135,7 +123,6 @@ _Painel de Gestão & DP Versão 2.0 - Desenvolvido por André Broisler_"""
     texto_encoded = urllib.parse.quote(texto_msg)
     return f"https://wa.me/{num_limpo}?text={texto_encoded}"
 
-# --- DISPARO DE E-MAIL SMTP ---
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
     try:
         conf_email = st.secrets.get("email", {})
@@ -179,7 +166,6 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
     except Exception as e:
         return False, str(e)
 
-# --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES ---
 def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
@@ -189,8 +175,6 @@ def carregar_usuarios():
                 df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
             else:
                 df_u[col] = ""
-        if 'Modulos' not in df_u.columns or df_u['Modulos'].isnull().all():
-            df_u['Modulos'] = ",".join(TODOS_MODULOS)
         return df_u
     else:
         dados_iniciais = [
@@ -205,7 +189,6 @@ def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
     df_u.to_excel(ARQUIVO_USUARIOS, index=False)
 
-# --- GERADOR DE RELATÓRIOS EM PDF ---
 def gerar_pdf_simples(titulo, colunas, dados):
     from reportlab.lib.pagesizes import letter, landscape
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -287,7 +270,7 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     elements.append(Spacer(1, 5))
     
     cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
+    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
     
     for _, row in df_filtrado[cols_pres].iterrows():
         r_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in row]
@@ -317,7 +300,6 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
     return output.getvalue()
 
-# --- AUTENTICAÇÃO COM NOME/E-MAIL E ACESSO MESTRE ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
@@ -366,8 +348,11 @@ def verificar_senha():
                     st.session_state["usuario_login"] = str(usr['Usuario'])
                     st.session_state["usuario_email"] = str(usr['Email'])
                     
-                    mods_raw = str(usr.get('Modulos', ''))
-                    st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
+                    if str(usr['Perfil']) == "Admin":
+                        st.session_state["usuario_modulos"] = TODOS_MODULOS
+                    else:
+                        mods_raw = str(usr.get('Modulos', ''))
+                        st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
                     
                     st.toast(f"Bem-vindo(a), {usr['Nome']}!", icon="👋")
                     st.rerun()
@@ -422,7 +407,6 @@ if verificar_senha():
         if os.path.exists(ARQUIVO_FALTAS):
             df_f = pd.read_excel(ARQUIVO_FALTAS)
             df_f.columns = df_f.columns.str.strip()
-            # Tratamento rigoroso para conversão das datas gravadas
             df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
             return df_f
         else:
@@ -536,8 +520,8 @@ if verificar_senha():
             df_faltas_filtrado = df_faltas.copy()
 
         modulos_liberados = st.session_state.get("usuario_modulos", TODOS_MODULOS)
-        if not modulos_liberados:
-            modulos_liberados = ["Dashboard & Alertas"]
+        if perfil_usuario == "Admin":
+            modulos_liberados = TODOS_MODULOS
 
         menu = st.sidebar.radio("Navegação", modulos_liberados)
 
@@ -557,8 +541,12 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
-            # VALIDAÇÃO SE A CHAMADA DE HOJE JÁ FOI SALVA
-            chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
+            # TRATAMENTO CORRETO DO CONTADOR
+            if not df_faltas_filtrado.empty:
+                chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje]
+            else:
+                chamada_hoje_existente = pd.DataFrame()
+                
             chamada_realizada = not chamada_hoje_existente.empty
 
             if chamada_realizada:
@@ -574,9 +562,8 @@ if verificar_senha():
                 qtd_faltantes_hoje = 0
                 df_folgas_hoje = pd.DataFrame()
                 df_ausencias_hoje = pd.DataFrame()
-                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada. Vá no menu 'Chamada & Faltas do Dia' para registrar a frequência.")
+                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada. Vá em 'Chamada & Faltas do Dia' para registrar a frequência.")
 
-            # ALERTA DE OCORRÊNCIAS PENDENTES DE DIAS ANTERIORES
             pendencias_ant = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
                 (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
@@ -696,10 +683,68 @@ if verificar_senha():
                 else:
                     st.info("Sem dados de ocorrências para gerar o gráfico de ausências.")
 
+        elif menu == "🤖 Assistente de IA do Gestor":
+            st.subheader("🤖 Assistente de Inteligência Artificial — Tropical DP")
+            st.caption("Pergunte qualquer dúvida sobre a equipe, relatórios, absenteísmo ou férias!")
+
+            gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+
+            if not gemini_key:
+                st.warning("⚠️ **Chave da API Gemini não configurada!** Adicione `GEMINI_API_KEY` nos *Secrets* do Streamlit para ativar a IA.")
+            else:
+                if "historico_chat" not in st.session_state:
+                    st.session_state.historico_chat = []
+
+                for msg in st.session_state.historico_chat:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
+
+                prompt_user = st.chat_input("Ex: Qual o setor com maior número de atestados neste mês?")
+
+                if prompt_user:
+                    st.session_state.historico_chat.append({"role": "user", "content": prompt_user})
+                    with st.chat_message("user"):
+                        st.markdown(prompt_user)
+
+                    with st.chat_message("assistant"):
+                        with st.spinner("Analisando dados da equipe..."):
+                            try:
+                                client = genai.Client(api_key=gemini_key)
+                                
+                                resumo_equipe = df_filtrado[['Funcionário', 'Setor', 'Cargo', 'Status']].to_string(index=False)
+                                resumo_faltas = df_faltas_filtrado[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].tail(30).to_string(index=False) if not df_faltas_filtrado.empty else "Sem faltas registradas"
+
+                                contexto_prompt = f"""
+                                Você é o Assistente Virtual de DP e Gestão da Tropical Distribuidora.
+                                Responda à dúvida do gestor de forma direta, cortês e profissional.
+                                
+                                DATA ATUAL: {hoje.strftime('%d/%m/%Y')}
+                                SETOR SELECIONADO: {setor_selecionado}
+                                
+                                DADOS DOS COLABORADORES:
+                                {resumo_equipe}
+                                
+                                ÚLTIMAS OCORRÊNCIAS / FALTAS (ÚLTIMOS REGISTROS):
+                                {resumo_faltas}
+                                
+                                PERGUNTA DO GESTOR: {prompt_user}
+                                """
+
+                                response = client.models.generate_content(
+                                    model='gemini-2.5-flash',
+                                    contents=contexto_prompt,
+                                )
+                                
+                                resposta_ia = response.text
+                                st.markdown(resposta_ia)
+                                st.session_state.historico_chat.append({"role": "assistant", "content": resposta_ia})
+
+                            except Exception as e:
+                                st.error(f"Erro ao conectar com a IA: {e}")
+
         elif menu == "Chamada & Faltas do Dia":
             st.subheader(f"📌 Chamada Diária de Presença & Ocorrências - {setor_selecionado}")
             
-            # --- PAINEL DE OCORRÊNCIAS DE DIAS ANTERIORES (APENAS APÓS A VIRADA) ---
             df_pendencias = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
                 (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
@@ -737,7 +782,6 @@ if verificar_senha():
                                 st.rerun()
                     st.markdown("---")
 
-            # --- ABAS DA CHAMADA E LANÇAMENTOS DO DIA ---
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
             
             with tab_chamada:
