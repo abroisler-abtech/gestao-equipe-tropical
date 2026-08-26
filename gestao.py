@@ -36,7 +36,7 @@ def exibir_modal_detalhes(titulo, df_exibir):
     else:
         st.dataframe(df_exibir, use_container_width=True)
 
-# --- ESTILOS CSS PERSONALIZADOS ---
+# --- ESTILOS CSS PERSONALIZADOS (REFORÇADO PARA OCULTAR BARRAS) ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -47,12 +47,14 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
-        /* OCULTA BARRA SUPERIOR, MENU E RODAPÉ DO STREAMLIT */
-        #MainMenu {{visibility: hidden;}}
-        footer {{visibility: hidden;}}
-        header {{visibility: hidden;}}
-        .stAppDeployButton {{display: none !important;}}
-        [data-testid="stHeader"] {{background-color: rgba(0,0,0,0) !important;}}
+        /* OCULTA TOTALMENTE QUALQUER BARRA DE GERENCIAMENTO OU DEPLOY DO STREAMLIT */
+        #MainMenu {{visibility: hidden !important; display: none !important;}}
+        footer {{visibility: hidden !important; display: none !important;}}
+        header {{visibility: hidden !important; display: none !important;}}
+        .stAppDeployButton {{display: none !important; visibility: hidden !important;}}
+        [data-testid="stHeader"] {{display: none !important; visibility: hidden !important;}}
+        div[data-testid="stToolbar"] {{display: none !important; visibility: hidden !important;}}
+        div.viewerBadge_container__1QSob {{display: none !important;}}
 
         /* ESTILIZAÇÃO GERAL */
         .stApp {{
