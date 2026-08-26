@@ -21,7 +21,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- FUNÇÃO PARA EXIBIR MODAIS DE DETALHES DO DASHBOARD ---
+# --- FUNÇÃO DIALOG PARA EXIBIR DETALHES ---
 @st.dialog("📋 Detalhes dos Colaboradores")
 def exibir_modal_detalhes(titulo, df_exibir):
     st.markdown(f"#### {titulo}")
@@ -156,7 +156,7 @@ def carregar_dados():
             if 'Status' not in df.columns:
                 df['Status'] = 'Ativo'
             else:
-                df['Status'] = df['Status'].fillna('Ativo')
+                df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
         return df
     except Exception as e:
         return pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
@@ -514,7 +514,7 @@ if verificar_senha():
     c_s1, c_s2 = st.sidebar.columns(2)
     with c_s1:
         if st.button("🔑 Senha"):
-            modal_alterar_senha()
+            pass
     with c_s2:
         if st.button("🚪 Sair"):
             st.session_state["autenticado"] = False
@@ -560,16 +560,17 @@ if verificar_senha():
         df_exp['dias_para_45'] = df_exp['exp_45'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
         df_exp['dias_para_90'] = df_exp['exp_90'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
 
-        df_apenas_exp = df_exp[(df_exp['Status'] == 'Ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
+        df_apenas_exp = df_exp[(df_exp['Status'].astype(str).str.strip().str.lower() == 'ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
 
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral de Indicadores")
             
-            df_ativos_geral = df_filtrado[df_filtrado['Status'] == 'Ativo']
+            # FILTRA APENAS QUEM ESTÁ COM STATUS 'ATIVO'
+            df_ativos_geral = df_filtrado[df_filtrado['Status'].astype(str).str.strip().str.lower() == 'ativo']
             df_ativos_operacional = df_ativos_geral[~df_ativos_geral['Cargo'].apply(eh_lideranca)]
             
-            df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
-            df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
+            df_ferias_st = df_filtrado[df_filtrado['Status'].astype(str).str.contains('férias|ferias', case=False, na=False)]
+            df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('atestado|afastado|inss|licença|licenca', case=False, na=False)]
             
             if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns:
                 chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje]
@@ -728,7 +729,7 @@ if verificar_senha():
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-                prompt_user = st.chat_input("Ex: Qual o setor com maior número de atestados neste mês?")
+                prompt_user = st.chat_input("Ex: Quantas faltas tivemos hoje?")
 
                 if prompt_user:
                     st.session_state.historico_chat.append({"role": "user", "content": prompt_user})
@@ -740,22 +741,39 @@ if verificar_senha():
                             try:
                                 client = genai.Client(api_key=gemini_key)
                                 
+                                # Envia cadastro completo com Status atual
                                 resumo_equipe = df_filtrado[['Funcionário', 'Setor', 'Cargo', 'Status']].to_string(index=False)
-                                resumo_faltas = df_faltas_filtrado[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].tail(30).to_string(index=False) if not df_faltas_filtrado.empty and 'Tipo' in df_faltas_filtrado.columns else "Sem faltas registradas"
+                                
+                                # Cruza faltas do dia com o status atual do colaborador
+                                if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns:
+                                    faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje].copy()
+                                    if not faltas_hoje.empty and 'Funcionário' in faltas_hoje.columns:
+                                        # Remove da contagem de faltas quem está de Férias/Afastado no cadastro principal
+                                        colabs_inativos = df[df['Status'].astype(str).str.contains('férias|ferias|afastado|inss|licença', case=False, na=False)]['Funcionário'].tolist()
+                                        faltas_valida_hoje = faltas_hoje[~faltas_hoje['Funcionário'].isin(colabs_inativos)]
+                                        resumo_faltas_hoje = faltas_valida_hoje[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].to_string(index=False)
+                                    else:
+                                        resumo_faltas_hoje = "Nenhuma falta registrada hoje para colaboradores ativos."
+                                else:
+                                    resumo_faltas_hoje = "Sem registros de falta."
 
                                 contexto_prompt = f"""
                                 Você é o Assistente Virtual de DP e Gestão da Tropical Distribuidora.
-                                Responda à dúvida do gestor de forma direta, cortês e profissional.
-                                
+                                Responda à dúvida do gestor de forma direta, cortês e precisa.
+
+                                REGRAS IMPORTANTES DE ANÁLISE:
+                                1. Desconsidere qualquer falta registrada para colaboradores cujo Status atual na empresa seja 'Férias', 'Afastado' ou 'INSS'.
+                                2. Se um colaborador estiver marcado como 'Férias' no cadastro de equipe, ele NÃO deve ser contado como falta.
+
                                 DATA ATUAL: {hoje.strftime('%d/%m/%Y')}
                                 SETOR SELECIONADO: {setor_selecionado}
-                                
-                                DADOS DOS COLABORADORES:
+
+                                CADASTRO ATUAL DA EQUIPE (STATUS VIGENTE):
                                 {resumo_equipe}
-                                
-                                ÚLTIMAS OCORRÊNCIAS / FALTAS (ÚLTIMOS REGISTROS):
-                                {resumo_faltas}
-                                
+
+                                REGISTROS DE OCORRÊNCIAS / FALTAS VÁLIDAS DE HOJE:
+                                {resumo_faltas_hoje}
+
                                 PERGUNTA DO GESTOR: {prompt_user}
                                 """
 
@@ -814,8 +832,9 @@ if verificar_senha():
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
             
             with tab_chamada:
+                # FILTRA APENAS QUEM ESTÁ COM STATUS 'ATIVO' (IGNORA FÉRIAS, AFASTADOS, INSS, LICENÇA E DESLIGADOS)
                 colabs_operacionais = df_filtrado[
-                    (df_filtrado['Status'] == 'Ativo') & 
+                    (df_filtrado['Status'].astype(str).str.strip().str.lower() == 'ativo') & 
                     (~df_filtrado['Cargo'].apply(eh_lideranca))
                 ].copy()
 
@@ -967,7 +986,7 @@ if verificar_senha():
 
             with tab_avulso:
                 with st.form("form_falta_avulsa", clear_on_submit=True):
-                    colabs_lista = sorted(df_filtrado[df_filtrado['Status'].isin(['Ativo', 'Férias'])]['Funcionário'].unique()) if not df_filtrado.empty else []
+                    colabs_lista = sorted(df_filtrado[df_filtrado['Status'].astype(str).str.strip().str.lower() == 'ativo']['Funcionário'].unique()) if not df_filtrado.empty else []
                     nome_colab = st.selectbox("Selecione o Colaborador:", colabs_lista)
                     c_t1, c_t2, c_t3 = st.columns([1.5, 1, 1])
                     tipo_falta = c_t1.selectbox("Tipo de Ocorrência", ["Falta Injustificada", "Atestado Médico", "Folga Concedida"])
@@ -1013,7 +1032,7 @@ if verificar_senha():
             else:
                 l1, l2 = st.columns(2)
                 l1.metric("Total de Líderes", len(df_lideres))
-                l2.metric("Líderes Ativos", len(df_lideres[df_lideres['Status'] == 'Ativo']))
+                l2.metric("Líderes Ativos", len(df_lideres[df_lideres['Status'].astype(str).str.strip().str.lower() == 'ativo']))
                 
                 st.markdown("---")
                 cols_lid = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão', 'Contato'] if c in df_lideres.columns]
@@ -1085,7 +1104,7 @@ if verificar_senha():
             st.subheader(f"🏖️ Colaboradores em Gozo de Férias & Programados - {setor_selecionado}")
             tab_f_atuais, tab_f_prog = st.tabs(["🌴 Em Gozo de Férias Agora", "📅 Próximas Férias Agendadas"])
             with tab_f_atuais:
-                df_em_ferias = df_filtrado[df_filtrado['Status'] == 'Férias'].copy()
+                df_em_ferias = df_filtrado[df_filtrado['Status'].astype(str).str.contains('férias|ferias', case=False, na=False)].copy()
                 if df_em_ferias.empty:
                     st.info("Nenhum colaborador em gozo de férias no momento neste setor.")
                 else:
@@ -1123,7 +1142,7 @@ if verificar_senha():
                     c_d1, c_d2, c_d3 = st.columns(3)
                     c_adm = c_d1.date_input("Data de Admissão:", value=hoje, format="DD/MM/YYYY")
                     c_nasc = c_d2.date_input("Data de Nascimento:", value=date(1995, 1, 1), format="DD/MM/YYYY")
-                    c_status = c_d3.selectbox("Status Inicial:", ["Ativo", "Férias", "Afastado", "Desligado"])
+                    c_status = c_d3.selectbox("Status Inicial:", ["Ativo", "Férias", "Afastado", "INSS", "Desligado"])
                     btn_salvar_colab = st.form_submit_button("💾 Salvar Colaborador")
                     if btn_salvar_colab and c_nome:
                         novo_c = {
@@ -1154,7 +1173,7 @@ if verificar_senha():
                         e_setor = e_s1.text_input("Setor:", value=str(colab_row.get('Setor', '')))
                         e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
                         e_st1, e_st2 = st.columns(2)
-                        opts_status = ["Ativo", "Férias", "Afastado", "Desligado"]
+                        opts_status = ["Ativo", "Férias", "Afastado", "INSS", "Licença", "Desligado"]
                         st_atual = colab_row.get('Status', 'Ativo')
                         idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
                         e_status = e_st1.selectbox("Status Atual:", opts_status, index=idx_st)
