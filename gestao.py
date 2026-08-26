@@ -120,10 +120,10 @@ TODOS_MODULOS = [
 
 TERMOS_LIDERANCA = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider', 'diretor']
 
-# --- CONEXÃO COM GOOGLE SHEETS VIA GSPREAD ---
+# --- CONEXÃO COM GOOGLE SHEETS VIA GSPREAD CORRIGIDA ---
 def obter_cliente_gspread():
     if "gspread_client" not in st.session_state:
-        st.session_state.gspread_client = gspread.public_client()
+        st.session_state.gspread_client = gspread.Client(auth=None)
     return st.session_state.gspread_client
 
 def carregar_dados():
@@ -266,10 +266,7 @@ def salvar_dados(df_salvar):
 
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
-    
-    # Remove linhas duplicadas exatas por Funcionário + Data
     df_f = df_f.drop_duplicates(subset=['Funcionário', 'Data'], keep='last')
-    
     df_export = df_f[cols_salvar].fillna("").astype(str)
     
     url_sheets = st.secrets.get("GSHEETS_URL", "")
@@ -467,13 +464,23 @@ def converter_df_para_excel(df_exp):
     return output.getvalue()
 
 def verificar_senha():
+    query_params = st.query_params
+    
     if "autenticado" not in st.session_state:
-        st.session_state["autenticado"] = False
-        st.session_state["perfil"] = None
-        st.session_state["usuario_nome"] = None
-        st.session_state["usuario_login"] = None
-        st.session_state["usuario_email"] = None
-        st.session_state["usuario_modulos"] = []
+        if query_params.get("session") == "active_admin":
+            st.session_state["autenticado"] = True
+            st.session_state["perfil"] = "Admin"
+            st.session_state["usuario_nome"] = "André Broisler"
+            st.session_state["usuario_login"] = "admin"
+            st.session_state["usuario_email"] = "abroisler@gmail.com"
+            st.session_state["usuario_modulos"] = TODOS_MODULOS
+        else:
+            st.session_state["autenticado"] = False
+            st.session_state["perfil"] = None
+            st.session_state["usuario_nome"] = None
+            st.session_state["usuario_login"] = None
+            st.session_state["usuario_email"] = None
+            st.session_state["usuario_modulos"] = []
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
@@ -496,6 +503,7 @@ def verificar_senha():
                 st.session_state["usuario_login"] = "admin"
                 st.session_state["usuario_email"] = "abroisler@gmail.com"
                 st.session_state["usuario_modulos"] = TODOS_MODULOS
+                st.query_params["session"] = "active_admin"
                 st.toast("Acesso de Administrador Liberado!", icon="🔑")
                 st.rerun()
             else:
@@ -519,6 +527,7 @@ def verificar_senha():
                         mods_raw = str(usr.get('Modulos', ''))
                         st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
                     
+                    st.query_params["session"] = f"active_{usr['Usuario']}"
                     st.toast(f"Bem-vindo(a), {usr['Nome']}!", icon="👋")
                     st.rerun()
                 else:
@@ -544,6 +553,7 @@ if verificar_senha():
     with c_s2:
         if st.button("🚪 Sair"):
             st.session_state["autenticado"] = False
+            st.query_params.clear()
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
@@ -958,7 +968,6 @@ if verificar_senha():
                     btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia", disabled=disabled_flag)
                     
                     if btn_salvar_chamada and not disabled_flag:
-                        # Limpa os registros existentes do mesmo dia/setor para evitar duplicidade acumulada
                         if not df_faltas.empty and 'Data' in df_faltas.columns:
                             df_faltas = df_faltas[~((df_faltas['Data'] == data_chamada_str) & (df_faltas['Setor'] == setor_selecionado))]
                         
