@@ -36,7 +36,7 @@ def exibir_modal_detalhes(titulo, df_exibir):
     else:
         st.dataframe(df_exibir, use_container_width=True)
 
-# --- ESTILOS CSS PERSONALIZADOS (REFORÇADO PARA OCULTAR BARRAS) ---
+# --- ESTILOS CSS PERSONALIZADOS (CORRIGIDO PARA MANTER A BARRA LATERAL) ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -47,25 +47,23 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
-        /* OCULTA TOTALMENTE QUALQUER BARRA DE GERENCIAMENTO OU DEPLOY DO STREAMLIT */
-        #MainMenu {{visibility: hidden !important; display: none !important;}}
+        /* REMOVE APENAS O RODAPÉ PADRÃO E A MARCA D'ÁGUA */
         footer {{visibility: hidden !important; display: none !important;}}
-        header {{visibility: hidden !important; display: none !important;}}
-        .stAppDeployButton {{display: none !important; visibility: hidden !important;}}
-        [data-testid="stHeader"] {{display: none !important; visibility: hidden !important;}}
-        div[data-testid="stToolbar"] {{display: none !important; visibility: hidden !important;}}
-        div.viewerBadge_container__1QSob {{display: none !important;}}
+        
+        /* GARANTE A VISIBILIDADE DA BARRA LATERAL E NAVEGAÇÃO */
+        [data-testid="stSidebar"] {{
+            background-color: #1B3B2B !important;
+            visibility: visible !important;
+            display: block !important;
+        }}
+        [data-testid="stSidebar"] * {{
+            color: #FFFFFF !important;
+        }}
 
         /* ESTILIZAÇÃO GERAL */
         .stApp {{
             background-color: #0E1117;
             color: #FFFFFF;
-        }}
-        [data-testid="stSidebar"] {{
-            background-color: #1B3B2B !important;
-        }}
-        [data-testid="stSidebar"] * {{
-            color: #FFFFFF !important;
         }}
         div.stButton > button {{
             background-color: #FF6B00 !important;
