@@ -47,10 +47,7 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
-        /* REMOVE O RODAPÉ PADRÃO E A MARCA D'ÁGUA */
         footer {{visibility: hidden !important; display: none !important;}}
-        
-        /* GARANTE A VISIBILIDADE DA BARRA LATERAL E NAVEGAÇÃO */
         [data-testid="stSidebar"] {{
             background-color: #1B3B2B !important;
             visibility: visible !important;
@@ -59,8 +56,6 @@ st.markdown(
         [data-testid="stSidebar"] * {{
             color: #FFFFFF !important;
         }}
-
-        /* ESTILIZAÇÃO GERAL */
         .stApp {{
             background-color: #0E1117;
             color: #FFFFFF;
@@ -132,6 +127,7 @@ def obter_cliente_gspread():
     return st.session_state.gspread_client
 
 def carregar_dados():
+    cols_padrao = ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão', 'Nascimento', 'Status', 'Ultimas_Ferias']
     try:
         url_sheets = st.secrets.get("GSHEETS_URL", "")
         if url_sheets:
@@ -141,39 +137,41 @@ def carregar_dados():
             dados = worksheet.get_all_records()
             df = pd.DataFrame(dados)
         else:
-            df = pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
+            df = pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame(columns=cols_padrao)
         
-        if not df.empty:
-            df.columns = df.columns.str.strip()
-            col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
-            col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
-            
-            df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
-            if col_nasc in df.columns:
-                df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
-                df['dt_nasc'] = df['dt_nasc_dt'].dt.date
-            else:
-                df['dt_nasc_dt'] = pd.NaT
-                df['dt_nasc'] = None
+        if df.empty:
+            df = pd.DataFrame(columns=cols_padrao)
 
-            if 'Vaga' in df.columns:
-                df['Vaga'] = df['Vaga'].astype(str).str.replace('.0', '', regex=False)
-            if 'Matricula' in df.columns:
-                df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
-            if 'Ultimas_Ferias' not in df.columns:
-                df['Ultimas_Ferias'] = None
-            else:
-                df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str)
-                df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
-            if 'Decisao_Experiencia' not in df.columns:
-                df['Decisao_Experiencia'] = None
-            if 'Status' not in df.columns:
-                df['Status'] = 'Ativo'
-            else:
-                df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
+        df.columns = df.columns.str.strip()
+        
+        for col in cols_padrao:
+            if col not in df.columns:
+                df[col] = None
+
+        col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
+        col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
+        
+        df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
+        if col_nasc in df.columns:
+            df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
+            df['dt_nasc'] = df['dt_nasc_dt'].dt.date
+        else:
+            df['dt_nasc_dt'] = pd.NaT
+            df['dt_nasc'] = None
+
+        df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
+        df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str)
+        df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
+        df['Decisao_Experiencia'] = df.get('Decisao_Experiencia', None)
+        df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
+        
         return df
     except Exception:
-        return pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
+        df_empty = pd.DataFrame(columns=cols_padrao)
+        df_empty['dt_adm'] = None
+        df_empty['dt_nasc'] = None
+        df_empty['dt_nasc_dt'] = pd.NaT
+        return df_empty
 
 def carregar_faltas():
     cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
@@ -542,7 +540,7 @@ if verificar_senha():
 
         st.sidebar.header("🔍 Filtros & Navegação")
         
-        lista_setores = ["Todos os Setores"] + sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Todos os Setores"]
+        lista_setores = ["Todos os Setores"] + sorted([s for s in df['Setor'].dropna().unique() if str(s).strip() != '']) if 'Setor' in df.columns else ["Todos os Setores"]
         setor_selecionado = st.sidebar.selectbox("Filtrar por Setor", lista_setores)
         
         if setor_selecionado != "Todos os Setores":
@@ -560,14 +558,15 @@ if verificar_senha():
 
         # CÁLCULOS DE EXPERIÊNCIA
         df_exp = df_filtrado.copy()
-        df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
-        df_exp['exp_90'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=90) if pd.notnull(d) else None)
-        df_exp['dias_para_45'] = df_exp['exp_45'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
-        df_exp['dias_para_90'] = df_exp['exp_90'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
+        if 'dt_adm' in df_exp.columns:
+            df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
+            df_exp['exp_90'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=90) if pd.notnull(d) else None)
+            df_exp['dias_para_45'] = df_exp['exp_45'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
+            df_exp['dias_para_90'] = df_exp['exp_90'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
+            df_apenas_exp = df_exp[(df_exp['Status'].astype(str).str.strip().str.lower() == 'ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
+        else:
+            df_apenas_exp = pd.DataFrame()
 
-        df_apenas_exp = df_exp[(df_exp['Status'].astype(str).str.strip().str.lower() == 'ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
-
-        # LISTA GLOBAL DE INATIVOS/FÉRIAS/AFASTADOS
         colabs_inativos_geral = df[df['Status'].astype(str).str.contains('férias|ferias|afastado|inss|licença|desligado', case=False, na=False)]['Funcionário'].tolist()
 
         if menu == "Dashboard & Alertas":
@@ -615,12 +614,13 @@ if verificar_senha():
             if not pendencias_ant.empty:
                 st.error(f"🚨 **ALERTA DE DP:** Existem {len(pendencias_ant)} ausência(s) de dias anteriores pendentes de classificação!")
 
-            exp_criticos = df_apenas_exp[
-                ((df_apenas_exp['dias_para_45'] >= 0) & (df_apenas_exp['dias_para_45'] <= 10)) | 
-                ((df_apenas_exp['dias_para_90'] >= 0) & (df_apenas_exp['dias_para_90'] <= 10))
-            ]
-            if not exp_criticos.empty:
-                st.warning(f"⏰ **ALERTA DE EXPERIÊNCIA:** Existem {len(exp_criticos)} contrato(s) de experiência vencendo nos próximos 10 dias!")
+            if not df_apenas_exp.empty:
+                exp_criticos = df_apenas_exp[
+                    ((df_apenas_exp['dias_para_45'] >= 0) & (df_apenas_exp['dias_para_45'] <= 10)) | 
+                    ((df_apenas_exp['dias_para_90'] >= 0) & (df_apenas_exp['dias_para_90'] <= 10))
+                ]
+                if not exp_criticos.empty:
+                    st.warning(f"⏰ **ALERTA DE EXPERIÊNCIA:** Existem {len(exp_criticos)} contrato(s) de experiência vencendo nos próximos 10 dias!")
 
             cd1, cd2 = st.columns(2)
             with cd1:
@@ -775,7 +775,6 @@ if verificar_senha():
                                 else:
                                     resumo_escala_ferias = "Sem registro de histórico ou agendamento de férias na base."
 
-                                # LEITURA DO HISTÓRICO COMPLETO PARA A IA RESPONDER QUALQUER DATA PASSADA
                                 if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
                                     cols_hist_ia = [c for c in ['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo'] if c in df_faltas_filtrado.columns]
                                     resumo_faltas_completo = df_faltas_filtrado[cols_hist_ia].tail(100).to_string(index=False)
@@ -871,7 +870,7 @@ if verificar_senha():
                 ].copy()
 
                 if colabs_operacionais.empty:
-                    st.warning("Nenhum colaborador operacional ativo no setor para chamada.")
+                    st.warning("Nenhum colaborador operacional ativo cadastrado para realizar chamada. Vá até 'Cadastrar / Editar Colaborador' para adicionar a sua equipe.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
                     data_chamada_str = data_chamada.strftime('%d/%m/%Y')
@@ -1022,7 +1021,7 @@ if verificar_senha():
                     if not faltas_inj.empty:
                         st.markdown("---")
                         st.markdown(f"##### 🚨 Emissão de Advertência Formal (RH) - Referente a {data_chamada_str}:")
-                        tel_rh = "19999999999"  # Insira o número do WhatsApp do seu RH com DDD
+                        tel_rh = "19999999999"
                         for _, f_inj in faltas_inj.iterrows():
                             colab_info = df[df['Funcionário'] == f_inj['Funcionário']]
                             cargo_f = colab_info.iloc[0].get('Cargo', 'N/A') if not colab_info.empty else 'N/A'
@@ -1190,7 +1189,7 @@ if verificar_senha():
                     c_mat = c_c1.text_input("Matrícula:")
                     c_nome = c_c2.text_input("Nome Completo:")
                     c_s1, c_s2 = st.columns(2)
-                    setores_opts = sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Geral"]
+                    setores_opts = sorted([s for s in df['Setor'].dropna().unique() if str(s).strip() != '']) if 'Setor' in df.columns and not df['Setor'].dropna().empty else ["Geral"]
                     c_setor = c_s1.selectbox("Setor:", setores_opts)
                     c_cargo = c_s2.text_input("Cargo:")
                     c_d1, c_d2, c_d3 = st.columns(3)
@@ -1215,40 +1214,43 @@ if verificar_senha():
                         st.rerun()
 
             with tab_edit_colab:
-                lista_colabs_cad = sorted(df['Funcionário'].dropna().unique())
-                colab_sel_edit = st.selectbox("Selecione o Colaborador para Alterar:", lista_colabs_cad)
-                if colab_sel_edit:
-                    idx_c = df[df['Funcionário'] == colab_sel_edit].index[0]
-                    colab_row = df.loc[idx_c]
-                    with st.form("form_editar_colaborador"):
-                        st.info(f"Alterando cadastro de **{colab_row['Funcionário']}**")
-                        e_c1, e_c2 = st.columns(2)
-                        e_mat = e_c1.text_input("Matrícula:", value=str(colab_row.get('Matricula', '')))
-                        e_nome = e_c2.text_input("Nome Completo:", value=str(colab_row['Funcionário']))
-                        e_s1, e_s2 = st.columns(2)
-                        e_setor = e_s1.text_input("Setor:", value=str(colab_row.get('Setor', '')))
-                        e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
-                        e_st1, e_st2 = st.columns(2)
-                        opts_status = ["Ativo", "Férias", "Afastado", "INSS", "Licença", "Desligado"]
-                        st_atual = str(colab_row.get('Status', 'Ativo')).strip()
-                        idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
-                        e_status = e_st1.selectbox("Status Atual:", opts_status, index=idx_st)
-                        
-                        raw_f_data = colab_row.get('Ultimas_Ferias')
-                        data_f_padrao = pd.to_datetime(raw_f_data, dayfirst=True, errors='coerce').date() if pd.notnull(raw_f_data) and str(raw_f_data).strip() not in ['', 'None', 'nan'] else hoje
-                        e_ult_ferias_dt = e_st2.date_input("Data Início / ÚLTIMAS FÉRIAS:", value=data_f_padrao, format="DD/MM/YYYY")
-                        
-                        btn_salvar_edit_c = st.form_submit_button("✏️ Atualizar Cadastro")
-                        if btn_salvar_edit_c:
-                            df.loc[idx_c, 'Matricula'] = str(e_mat).strip()
-                            df.loc[idx_c, 'Funcionário'] = str(e_nome).strip()
-                            df.loc[idx_c, 'Setor'] = str(e_setor).strip()
-                            df.loc[idx_c, 'Cargo'] = str(e_cargo).strip()
-                            df.loc[idx_c, 'Status'] = str(e_status)
-                            df.loc[idx_c, 'Ultimas_Ferias'] = e_ult_ferias_dt.strftime('%d/%m/%Y')
-                            salvar_dados(df)
-                            st.toast("✅ Cadastro de colaborador atualizado!", icon="💾")
-                            st.rerun()
+                lista_colabs_cad = sorted([c for c in df['Funcionário'].dropna().unique() if str(c).strip() != ''])
+                if not lista_colabs_cad:
+                    st.info("Nenhum colaborador cadastrado para edição.")
+                else:
+                    colab_sel_edit = st.selectbox("Selecione o Colaborador para Alterar:", lista_colabs_cad)
+                    if colab_sel_edit:
+                        idx_c = df[df['Funcionário'] == colab_sel_edit].index[0]
+                        colab_row = df.loc[idx_c]
+                        with st.form("form_editar_colaborador"):
+                            st.info(f"Alterando cadastro de **{colab_row['Funcionário']}**")
+                            e_c1, e_c2 = st.columns(2)
+                            e_mat = e_c1.text_input("Matrícula:", value=str(colab_row.get('Matricula', '')))
+                            e_nome = e_c2.text_input("Nome Completo:", value=str(colab_row['Funcionário']))
+                            e_s1, e_s2 = st.columns(2)
+                            e_setor = e_s1.text_input("Setor:", value=str(colab_row.get('Setor', '')))
+                            e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
+                            e_st1, e_st2 = st.columns(2)
+                            opts_status = ["Ativo", "Férias", "Afastado", "INSS", "Licença", "Desligado"]
+                            st_atual = str(colab_row.get('Status', 'Ativo')).strip()
+                            idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
+                            e_status = e_st1.selectbox("Status Atual:", opts_status, index=idx_st)
+                            
+                            raw_f_data = colab_row.get('Ultimas_Ferias')
+                            data_f_padrao = pd.to_datetime(raw_f_data, dayfirst=True, errors='coerce').date() if pd.notnull(raw_f_data) and str(raw_f_data).strip() not in ['', 'None', 'nan'] else hoje
+                            e_ult_ferias_dt = e_st2.date_input("Data Início / ÚLTIMAS FÉRIAS:", value=data_f_padrao, format="DD/MM/YYYY")
+                            
+                            btn_salvar_edit_c = st.form_submit_button("✏️ Atualizar Cadastro")
+                            if btn_salvar_edit_c:
+                                df.loc[idx_c, 'Matricula'] = str(e_mat).strip()
+                                df.loc[idx_c, 'Funcionário'] = str(e_nome).strip()
+                                df.loc[idx_c, 'Setor'] = str(e_setor).strip()
+                                df.loc[idx_c, 'Cargo'] = str(e_cargo).strip()
+                                df.loc[idx_c, 'Status'] = str(e_status)
+                                df.loc[idx_c, 'Ultimas_Ferias'] = e_ult_ferias_dt.strftime('%d/%m/%Y')
+                                salvar_dados(df)
+                                st.toast("✅ Cadastro de colaborador atualizado!", icon="💾")
+                                st.rerun()
 
         elif menu == "⚙️ Criar / Gerenciar Usuários":
             st.subheader("⚙️ Painel do Administrador - Gestão de Usuários & Permissões")
@@ -1296,55 +1298,58 @@ if verificar_senha():
                                 else:
                                     st.info(f"ℹ️ {msg_m}")
             with tab_edit_u:
-                lista_logins = sorted(df_usuarios['Usuario'].astype(str).unique())
-                usr_sel_edit = st.selectbox("Selecione o Usuário para Editar:", lista_logins)
-                if usr_sel_edit:
-                    idx_u = df_usuarios[df_usuarios['Usuario'].astype(str) == usr_sel_edit].index[0]
-                    usr_dados = df_usuarios.loc[idx_u]
-                    with st.form("form_edit_usr"):
-                        st.info(f"Editando dados e permissões do usuário **{usr_dados['Nome']}**")
-                        e_u1, e_u2 = st.columns(2)
-                        e_nome = e_u1.text_input("Nome Completo:", value=str(usr_dados['Nome']))
-                        e_email = e_u2.text_input("E-mail:", value=str(usr_dados.get('Email', '')))
-                        e_s1, e_s2, e_t1 = st.columns([1.2, 1.2, 1])
-                        e_senha = e_s1.text_input("Senha:", value=str(usr_dados['Senha']), type="password")
-                        opts_p = ["Gestor", "Admin"]
-                        idx_p = opts_p.index(usr_dados['Perfil']) if usr_dados['Perfil'] in opts_p else 0
-                        e_perfil = e_s2.selectbox("Perfil Geral:", opts_p, index=idx_p)
-                        e_tel = e_t1.text_input("WhatsApp (DDD+Num):", value=str(usr_dados.get('Telefone', '')))
-                        reenviar_mail_chk = st.checkbox("📧 Reenviar e-mail com os novos dados de acesso?", value=False)
-                        st.markdown("##### 📌 Módulos Liberados:")
-                        mods_atuais = [m.strip() for m in str(usr_dados.get('Modulos', '')).split(',') if m.strip()]
-                        e_modulos = []
-                        cols_e_mod = st.columns(2)
-                        for idx_m, mod_nome in enumerate(TODOS_MODULOS):
-                            with cols_e_mod[idx_m % 2]:
-                                is_chk = mod_nome in mods_atuais
-                                if st.checkbox(mod_nome, value=is_chk, key=f"mod_edit_{idx_m}"):
-                                    e_modulos.append(mod_nome)
-                        btn_salvar_edit = st.form_submit_button("✏️ Atualizar Usuário e Permissões")
-                        if btn_salvar_edit:
-                            df_usuarios.loc[idx_u, 'Nome'] = str(e_nome).strip()
-                            df_usuarios.loc[idx_u, 'Email'] = str(e_email).strip()
-                            df_usuarios.loc[idx_u, 'Senha'] = str(e_senha).strip()
-                            df_usuarios.loc[idx_u, 'Perfil'] = str(e_perfil)
-                            df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
-                            df_usuarios.loc[idx_u, 'Telefone'] = str(e_tel).strip()
-                            salvar_usuarios(df_usuarios)
-                            if str(usr_dados['Usuario']).lower() == str(st.session_state.get("usuario_login")).lower():
-                                st.session_state["usuario_nome"] = str(e_nome).strip()
-                                st.session_state["perfil"] = str(e_perfil)
-                                st.session_state["usuario_modulos"] = e_modulos
-                            st.toast(f"✅ Permissões de '{e_nome}' atualizadas!", icon="💾")
-                            if e_tel:
-                                link_wa_edit = gerar_link_whatsapp(e_tel, e_nome, e_email if e_email else e_nome, e_senha)
-                                st.markdown(f"👉 **[📲 Clique aqui para enviar os novos dados via WhatsApp]({link_wa_edit})**")
-                            if reenviar_mail_chk and e_email:
-                                ok_m, msg_m = enviar_email_acesso(e_email, e_nome, e_email, e_senha)
-                                if ok_m:
-                                    st.toast("📧 E-mail atualizado enviado!", icon="✉️")
-                                else:
-                                    st.info(f"ℹ️ {msg_m}")
+                lista_logins = sorted([u for u in df_usuarios['Usuario'].astype(str).unique() if str(u).strip() != ''])
+                if not lista_logins:
+                    st.info("Nenhum usuário cadastrado para edição.")
+                else:
+                    usr_sel_edit = st.selectbox("Selecione o Usuário para Editar:", lista_logins)
+                    if usr_sel_edit:
+                        idx_u = df_usuarios[df_usuarios['Usuario'].astype(str) == usr_sel_edit].index[0]
+                        usr_dados = df_usuarios.loc[idx_u]
+                        with st.form("form_edit_usr"):
+                            st.info(f"Editando dados e permissões do usuário **{usr_dados['Nome']}**")
+                            e_u1, e_u2 = st.columns(2)
+                            e_nome = e_u1.text_input("Nome Completo:", value=str(usr_dados['Nome']))
+                            e_email = e_u2.text_input("E-mail:", value=str(usr_dados.get('Email', '')))
+                            e_s1, e_s2, e_t1 = st.columns([1.2, 1.2, 1])
+                            e_senha = e_s1.text_input("Senha:", value=str(usr_dados['Senha']), type="password")
+                            opts_p = ["Gestor", "Admin"]
+                            idx_p = opts_p.index(usr_dados['Perfil']) if usr_dados['Perfil'] in opts_p else 0
+                            e_perfil = e_s2.selectbox("Perfil Geral:", opts_p, index=idx_p)
+                            e_tel = e_t1.text_input("WhatsApp (DDD+Num):", value=str(usr_dados.get('Telefone', '')))
+                            reenviar_mail_chk = st.checkbox("📧 Reenviar e-mail com os novos dados de acesso?", value=False)
+                            st.markdown("##### 📌 Módulos Liberados:")
+                            mods_atuais = [m.strip() for m in str(usr_dados.get('Modulos', '')).split(',') if m.strip()]
+                            e_modulos = []
+                            cols_e_mod = st.columns(2)
+                            for idx_m, mod_nome in enumerate(TODOS_MODULOS):
+                                with cols_e_mod[idx_m % 2]:
+                                    is_chk = mod_nome in mods_atuais
+                                    if st.checkbox(mod_nome, value=is_chk, key=f"mod_edit_{idx_m}"):
+                                        e_modulos.append(mod_nome)
+                            btn_salvar_edit = st.form_submit_button("✏️ Atualizar Usuário e Permissões")
+                            if btn_salvar_edit:
+                                df_usuarios.loc[idx_u, 'Nome'] = str(e_nome).strip()
+                                df_usuarios.loc[idx_u, 'Email'] = str(e_email).strip()
+                                df_usuarios.loc[idx_u, 'Senha'] = str(e_senha).strip()
+                                df_usuarios.loc[idx_u, 'Perfil'] = str(e_perfil)
+                                df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
+                                df_usuarios.loc[idx_u, 'Telefone'] = str(e_tel).strip()
+                                salvar_usuarios(df_usuarios)
+                                if str(usr_dados['Usuario']).lower() == str(st.session_state.get("usuario_login")).lower():
+                                    st.session_state["usuario_nome"] = str(e_nome).strip()
+                                    st.session_state["perfil"] = str(e_perfil)
+                                    st.session_state["usuario_modulos"] = e_modulos
+                                st.toast(f"✅ Permissões de '{e_nome}' atualizadas!", icon="💾")
+                                if e_tel:
+                                    link_wa_edit = gerar_link_whatsapp(e_tel, e_nome, e_email if e_email else e_nome, e_senha)
+                                    st.markdown(f"👉 **[📲 Clique aqui para enviar os novos dados via WhatsApp]({link_wa_edit})**")
+                                if reenviar_mail_chk and e_email:
+                                    ok_m, msg_m = enviar_email_acesso(e_email, e_nome, e_email, e_senha)
+                                    if ok_m:
+                                        st.toast("📧 E-mail atualizado enviado!", icon="✉️")
+                                    else:
+                                        st.info(f"ℹ️ {msg_m}")
             with tab_lista_u:
                 st.markdown("##### 👥 Usuários e Módulos Cadastrados:")
                 st.dataframe(df_usuarios[['Nome', 'Usuario', 'Email', 'Telefone', 'Perfil', 'Modulos']], use_container_width=True)
