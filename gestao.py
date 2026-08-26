@@ -295,6 +295,28 @@ _Painel de Gestão & DP Versão 2.0 - Desenvolvido por André Broisler_"""
     texto_encoded = urllib.parse.quote(texto_msg)
     return f"https://wa.me/{num_limpo}?text={texto_encoded}"
 
+def gerar_link_wa_advertencia(telefone_rh, nome_colab, matricula, setor, cargo, data_falta):
+    num_limpo = "".join(filter(str.isdigit, str(telefone_rh)))
+    if not num_limpo.startswith("55") and len(num_limpo) in [10, 11]:
+        num_limpo = f"55{num_limpo}"
+        
+    texto_msg = f"""🚨 *SOLICITAÇÃO DE ADVERTÊNCIA - FALTA INJUSTIFICADA*
+
+Olá, equipe do RH/DP!
+
+Favor emitir a carta de *Advertência Formal por Falta Injustificada* (art. 482 da CLT) para o colaborador abaixo:
+
+👤 *Colaborador:* {nome_colab}
+🆔 *Matrícula:* {matricula}
+🏢 *Setor:* {setor} | *Cargo:* {cargo}
+📅 *Data da Falta:* {data_falta}
+📝 *Motivo:* Ausência injustificada registrada na chamada do turno.
+
+_Painel de Gestão & DP — Tropical_"""
+
+    texto_encoded = urllib.parse.quote(texto_msg)
+    return f"https://wa.me/{num_limpo}?text={texto_encoded}"
+
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
     try:
         conf_email = st.secrets.get("email", {})
@@ -997,6 +1019,25 @@ if verificar_senha():
                         txt_wa += "✨ *Turno operacional com 100% de assiduidade!*\n"
                         
                     st.code(txt_wa, language="markdown")
+
+                    # NOTIFICAÇÃO AUTOMÁTICA DE ADVERTÊNCIA PARA FALTAS INJUSTIFICADAS
+                    faltas_inj = faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Falta Injustificada'] if not faltas_da_chamada.empty else pd.DataFrame()
+                    if not faltas_inj.empty:
+                        st.markdown("---")
+                        st.markdown("##### 🚨 Emissão de Advertência Formal (RH):")
+                        tel_rh = "19999999999"  # Insira o número do WhatsApp do seu RH com DDD
+                        for _, f_inj in faltas_inj.iterrows():
+                            colab_info = df[df['Funcionário'] == f_inj['Funcionário']]
+                            cargo_f = colab_info.iloc[0].get('Cargo', 'N/A') if not colab_info.empty else 'N/A'
+                            link_wa_adv = gerar_link_wa_advertencia(
+                                telefone_rh=tel_rh,
+                                nome_colab=f_inj['Funcionário'],
+                                matricula=str(f_inj.get('Matricula', 'N/A')),
+                                setor=str(f_inj.get('Setor', 'N/A')),
+                                cargo=cargo_f,
+                                data_falta=data_chamada_str
+                            )
+                            st.markdown(f"👉 **[📲 Solicitar Advertência ao RH para {f_inj['Funcionário']}]({link_wa_adv})**")
 
             with tab_avulso:
                 with st.form("form_falta_avulsa", clear_on_submit=True):
