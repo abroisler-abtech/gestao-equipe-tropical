@@ -10,7 +10,7 @@ import ferias
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+import gspread
 from google import genai
 
 importlib.reload(ferias)
@@ -102,16 +102,21 @@ TODOS_MODULOS = [
 
 TERMOS_LIDERANCA = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider', 'diretor']
 
-# --- CONEXÃO COM GOOGLE SHEETS ---
-def obter_conexao_gsheets():
-    return st.connection("gsheets", type=GSheetsConnection)
+# --- CONEXÃO COM GOOGLE SHEETS VIA GSPREAD NATIVO ---
+def obter_cliente_gspread():
+    if "gspread_client" not in st.session_state:
+        st.session_state.gspread_client = gspread.public_client()
+    return st.session_state.gspread_client
 
 def carregar_dados():
     try:
-        conn = obter_conexao_gsheets()
         url_sheets = st.secrets.get("GSHEETS_URL", "")
         if url_sheets:
-            df = conn.read(spreadsheet=url_sheets, worksheet="equipe", ttl="0s")
+            gc = obter_cliente_gspread()
+            sh = gc.open_by_url(url_sheets)
+            worksheet = sh.worksheet("equipe")
+            dados = worksheet.get_all_records()
+            df = pd.DataFrame(dados)
         else:
             df = pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
         
@@ -145,16 +150,18 @@ def carregar_dados():
                 df['Status'] = df['Status'].fillna('Ativo')
         return df
     except Exception as e:
-        st.error(f"Erro ao carregar 'equipe': {e}")
-        return pd.DataFrame()
+        return pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
 
 def carregar_faltas():
     cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
     try:
-        conn = obter_conexao_gsheets()
         url_sheets = st.secrets.get("GSHEETS_URL", "")
         if url_sheets:
-            df_f = conn.read(spreadsheet=url_sheets, worksheet="faltas", ttl="0s")
+            gc = obter_cliente_gspread()
+            sh = gc.open_by_url(url_sheets)
+            worksheet = sh.worksheet("faltas")
+            dados = worksheet.get_all_records()
+            df_f = pd.DataFrame(dados)
         else:
             df_f = pd.read_excel("faltas.xlsx") if os.path.exists("faltas.xlsx") else pd.DataFrame(columns=cols_padrao)
 
@@ -170,15 +177,18 @@ def carregar_faltas():
         else:
             df_f = pd.DataFrame(columns=cols_padrao)
         return df_f
-    except Exception as e:
+    except Exception:
         return pd.DataFrame(columns=cols_padrao)
 
 def carregar_usuarios():
     try:
-        conn = obter_conexao_gsheets()
         url_sheets = st.secrets.get("GSHEETS_URL", "")
         if url_sheets:
-            df_u = conn.read(spreadsheet=url_sheets, worksheet="usuarios", ttl="0s")
+            gc = obter_cliente_gspread()
+            sh = gc.open_by_url(url_sheets)
+            worksheet = sh.worksheet("usuarios")
+            dados = worksheet.get_all_records()
+            df_u = pd.DataFrame(dados)
         else:
             df_u = pd.read_excel("usuarios.xlsx") if os.path.exists("usuarios.xlsx") else pd.DataFrame()
 
@@ -203,28 +213,43 @@ def salvar_dados(df_salvar):
     cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
     url_sheets = st.secrets.get("GSHEETS_URL", "")
     if url_sheets:
-        conn = obter_conexao_gsheets()
-        conn.update(spreadsheet=url_sheets, worksheet="equipe", data=df_salvar[cols_salvar])
-    else:
-        df_salvar[cols_salvar].to_excel("equipe.xlsx", index=False)
+        try:
+            gc = obter_cliente_gspread()
+            sh = gc.open_by_url(url_sheets)
+            ws = sh.worksheet("equipe")
+            ws.clear()
+            ws.update([df_salvar[cols_salvar].columns.values.tolist()] + df_salvar[cols_salvar].fillna("").values.tolist())
+        except Exception as e:
+            st.error(f"Erro ao salvar equipe no Sheets: {e}")
+    df_salvar[cols_salvar].to_excel("equipe.xlsx", index=False)
 
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
     url_sheets = st.secrets.get("GSHEETS_URL", "")
     if url_sheets:
-        conn = obter_conexao_gsheets()
-        conn.update(spreadsheet=url_sheets, worksheet="faltas", data=df_f[cols_salvar])
-    else:
-        df_f[cols_salvar].to_excel("faltas.xlsx", index=False)
+        try:
+            gc = obter_cliente_gspread()
+            sh = gc.open_by_url(url_sheets)
+            ws = sh.worksheet("faltas")
+            ws.clear()
+            ws.update([df_f[cols_salvar].columns.values.tolist()] + df_f[cols_salvar].fillna("").values.tolist())
+        except Exception as e:
+            st.error(f"Erro ao salvar faltas no Sheets: {e}")
+    df_f[cols_salvar].to_excel("faltas.xlsx", index=False)
 
 def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
     url_sheets = st.secrets.get("GSHEETS_URL", "")
     if url_sheets:
-        conn = obter_conexao_gsheets()
-        conn.update(spreadsheet=url_sheets, worksheet="usuarios", data=df_u)
-    else:
-        df_u.to_excel("usuarios.xlsx", index=False)
+        try:
+            gc = obter_cliente_gspread()
+            sh = gc.open_by_url(url_sheets)
+            ws = sh.worksheet("usuarios")
+            ws.clear()
+            ws.update([df_u.columns.values.tolist()] + df_u.fillna("").values.tolist())
+        except Exception as e:
+            st.error(f"Erro ao salvar usuários no Sheets: {e}")
+    df_u.to_excel("usuarios.xlsx", index=False)
 
 def eh_lideranca(cargo_str):
     if not cargo_str or pd.isna(cargo_str):
@@ -816,7 +841,6 @@ if verificar_senha():
                         for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
                             
-                            # ALTERADO: Inicia com as caixas desmarcadas (False) por padrão
                             val_pres_def = False
                             val_folga_def = False
                             
