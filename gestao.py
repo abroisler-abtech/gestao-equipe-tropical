@@ -579,7 +579,6 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'].astype(str).str.contains('férias|ferias', case=False, na=False)]
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('atestado|afastado|inss|licença|licenca', case=False, na=False)]
             
-            # FILTRAGEM ESTRITA DA CHAMADA APENAS PARA A DATA DE HOJE
             if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
                 chamada_hoje_existente = df_faltas_filtrado[
                     (df_faltas_filtrado['Data'] == hoje_str) & 
@@ -744,7 +743,7 @@ if verificar_senha():
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-                prompt_user = st.chat_input("Ex: Quantos colaboradores estão em experiência ou agendados para férias?")
+                prompt_user = st.chat_input("Ex: Quantas faltas tivemos ontem ou nos últimos dias?")
 
                 if prompt_user:
                     st.session_state.historico_chat.append({"role": "user", "content": prompt_user})
@@ -776,15 +775,12 @@ if verificar_senha():
                                 else:
                                     resumo_escala_ferias = "Sem registro de histórico ou agendamento de férias na base."
 
+                                # LEITURA DO HISTÓRICO COMPLETO PARA A IA RESPONDER QUALQUER DATA PASSADA
                                 if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
-                                    faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['Data'] == hoje_str].copy()
-                                    if not faltas_hoje.empty and 'Funcionário' in faltas_hoje.columns:
-                                        faltas_valida_hoje = faltas_hoje[~faltas_hoje['Funcionário'].isin(colabs_inativos_geral)]
-                                        resumo_faltas_hoje = faltas_valida_hoje[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].to_string(index=False) if not faltas_valida_hoje.empty else "Nenhuma falta registrada hoje."
-                                    else:
-                                        resumo_faltas_hoje = "Nenhuma falta registrada hoje."
+                                    cols_hist_ia = [c for c in ['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo'] if c in df_faltas_filtrado.columns]
+                                    resumo_faltas_completo = df_faltas_filtrado[cols_hist_ia].tail(100).to_string(index=False)
                                 else:
-                                    resumo_faltas_hoje = "Sem registros de falta."
+                                    resumo_faltas_completo = "Sem registros de falta no histórico."
 
                                 contexto_prompt = f"""
                                 Você é o Assistente Virtual de DP e Gestão da Tropical Distribuidora.
@@ -793,7 +789,7 @@ if verificar_senha():
                                 REGRAS IMPORTANTES DE ANÁLISE:
                                 1. Para dúvidas de "Experiência": consulte a tabela QUADRO DE CONTRATOS DE EXPERIÊNCIA.
                                 2. Para dúvidas de "Férias e Programação": consulte a tabela ESCALA E HISTÓRICO DE FÉRIAS, bem como o Status atual ('Férias').
-                                3. Para dúvidas de "Faltas/Ausências": desconsidere colaboradores com Status 'Férias', 'Afastado' ou 'INSS'.
+                                3. Para dúvidas de "Faltas/Ausências/Ocorrências em qualquer data": consulte o HISTÓRICO COMPLETO DE FALTAS E AUSÊNCIAS.
 
                                 DATA ATUAL DE HOJE: {hoje_str}
                                 SETOR SELECIONADO: {setor_selecionado}
@@ -807,8 +803,8 @@ if verificar_senha():
                                 3. ESCALA E HISTÓRICO DE FÉRIAS:
                                 {resumo_escala_ferias}
 
-                                4. REGISTROS DE FALTAS/OCORRÊNCIAS DE HOJE:
-                                {resumo_faltas_hoje}
+                                4. HISTÓRICO COMPLETO DE FALTAS E AUSÊNCIAS (TODAS AS DATAS):
+                                {resumo_faltas_completo}
 
                                 PERGUNTA DO GESTOR: {prompt_user}
                                 """
@@ -1072,11 +1068,11 @@ if verificar_senha():
                         st.rerun()
 
             with tab_hist_f:
-                df_faltas_hist = df_faltas_filtrado[~df_faltas_filtrado['Funcionário'].isin(colabs_inativos_geral)] if not df_faltas_filtrado.empty else pd.DataFrame()
-                if df_faltas_hist.empty:
-                    st.info("Nenhum registro cadastrado para colaboradores ativos.")
+                if df_faltas_filtrado.empty:
+                    st.info("Nenhum registro cadastrado na base de dados.")
                 else:
-                    st.dataframe(df_faltas_hist, use_container_width=True)
+                    cols_exibir_h = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in df_faltas_filtrado.columns]
+                    st.dataframe(df_faltas_filtrado[cols_exibir_h], use_container_width=True)
 
         elif menu == "👔 Quadro de Liderança":
             st.subheader(f"👔 Quadro Geral de Liderança - {setor_selecionado}")
