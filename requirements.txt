@@ -6,3 +6,4 @@ reportlab
 openpyxl
 google-genai
 st-gsheets-connection
+supabase
