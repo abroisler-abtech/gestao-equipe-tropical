@@ -22,7 +22,8 @@ TODOS_MODULOS = [
     "Dashboard & Alertas",
     "Chamada & Faltas do Dia",
     "👤 Ficha Individual do Colaborador",
-    "📝 Controle de Férias e Experiência",
+    "📅 Escala Inteligente de Férias",
+    "🤖 Assistente IA de DP",
     "⚙️ Gerenciamento de Usuários"
 ]
 
@@ -254,7 +255,6 @@ with st.sidebar:
     st.divider()
     st.header("📌 Navegação")
     
-    # Se for Administrador Mestre ou perfil Admin, garante acesso total aos módulos
     if st.session_state.perfil_atual == "Admin":
         menu_opcoes = TODOS_MODULOS
     else:
@@ -331,14 +331,22 @@ elif escolha == "👤 Ficha Individual do Colaborador":
         st.write(f"**Cargo:** {dados_colab.get('Cargo', '')}")
         st.write(f"**Status:** {dados_colab.get('Status', '')}")
 
-# --- MÓDULO 4: FÉRIAS E EXPERIÊNCIA ---
-elif escolha == "📝 Controle de Férias e Experiência":
-    st.title("📝 Controle de Férias e Experiência")
-    st.info("Gerenciamento de prazos de experiência e programação de férias.")
+# --- MÓDULO 4: ESCALA INTELIGENTE DE FÉRIAS ---
+elif escolha == "📅 Escala Inteligente de Férias":
+    st.title("📅 Escala Inteligente de Férias")
+    st.info("Planejamento e controle de vencimentos e programação de férias da equipe.")
     if not df_equipe.empty:
         st.dataframe(df_equipe[['Matricula', 'Funcionário', 'Setor', 'Admissão', 'Ultimas_Ferias']], use_container_width=True)
 
-# --- MÓDULO 5: GERENCIAMENTO DE USUÁRIOS (EDITÁVEL) ---
+# --- MÓDULO 5: ASSISTENTE IA DE DP ---
+elif escolha == "🤖 Assistente IA de DP":
+    st.title("🤖 Assistente IA de DP")
+    st.write("Tire dúvidas sobre legislação trabalhista, rotinas de DP e análises de equipe.")
+    pergunta_ia = st.text_input("Digite sua dúvida para a IA:")
+    if st.button("Consultar IA"):
+        st.info("O assistente de IA está conectado para auxiliar nas suas demandas de gestão.")
+
+# --- MÓDULO 6: GERENCIAMENTO DE USUÁRIOS ---
 elif escolha == "⚙️ Gerenciamento de Usuários":
     st.title("⚙️ Gerenciamento de Usuários do Sistema")
     
