@@ -1023,11 +1023,11 @@ if verificar_senha():
                         
                     st.code(txt_wa, language="markdown")
 
-                    # NOTIFICAÇÃO AUTOMÁTICA DE ADVERTÊNCIA PARA FALTAS INJUSTIFICADAS
+                    # NOTIFICAÇÃO DE ADVERTÊNCIA PARA FALTAS INJUSTIFICADAS (DATA SELECIONADA OU ANTERIORES)
                     faltas_inj = faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Falta Injustificada'] if not faltas_da_chamada.empty else pd.DataFrame()
                     if not faltas_inj.empty:
                         st.markdown("---")
-                        st.markdown("##### 🚨 Emissão de Advertência Formal (RH):")
+                        st.markdown(f"##### 🚨 Emissão de Advertência Formal (RH) - Referente a {data_chamada_str}:")
                         tel_rh = "19999999999"  # Insira o número do WhatsApp do seu RH com DDD
                         for _, f_inj in faltas_inj.iterrows():
                             colab_info = df[df['Funcionário'] == f_inj['Funcionário']]
@@ -1040,7 +1040,7 @@ if verificar_senha():
                                 cargo=cargo_f,
                                 data_falta=data_chamada_str
                             )
-                            st.markdown(f"👉 **[📲 Solicitar Advertência ao RH para {f_inj['Funcionário']}]({link_wa_adv})**")
+                            st.markdown(f"👉 **[📲 Solicitar Advertência de {f_inj['Funcionário']} ({data_chamada_str})]({link_wa_adv})**")
 
             with tab_avulso:
                 with st.form("form_falta_avulsa", clear_on_submit=True):
