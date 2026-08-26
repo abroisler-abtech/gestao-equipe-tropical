@@ -47,6 +47,14 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
+        /* OCULTA BARRA SUPERIOR, MENU E RODAPÉ DO STREAMLIT */
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        header {{visibility: hidden;}}
+        .stAppDeployButton {{display: none !important;}}
+        [data-testid="stHeader"] {{background-color: rgba(0,0,0,0) !important;}}
+
+        /* ESTILIZAÇÃO GERAL */
         .stApp {{
             background-color: #0E1117;
             color: #FFFFFF;
@@ -230,7 +238,6 @@ def salvar_dados(df_salvar):
     
     df_export = df_salvar[cols_salvar].copy()
     
-    # Garantir tratamento para o Google Sheets
     url_sheets = st.secrets.get("GSHEETS_URL", "")
     if url_sheets:
         try:
