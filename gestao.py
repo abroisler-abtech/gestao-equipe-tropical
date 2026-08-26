@@ -266,6 +266,10 @@ def salvar_dados(df_salvar):
 
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
+    
+    # Remove linhas duplicadas exatas por Funcionário + Data
+    df_f = df_f.drop_duplicates(subset=['Funcionário', 'Data'], keep='last')
+    
     df_export = df_f[cols_salvar].fillna("").astype(str)
     
     url_sheets = st.secrets.get("GSHEETS_URL", "")
@@ -828,7 +832,7 @@ if verificar_senha():
                             """
 
                             response = client.models.generate_content(
-                                model='gemini-3.6-flash',
+                                model='gemini-2.5-flash',
                                 contents=contexto_prompt,
                             )
                             
@@ -860,7 +864,13 @@ if verificar_senha():
                     with p_col2:
                         novo_tipo = st.selectbox(
                             "Nova Classificação", 
-                            ["Falta Injustificada", "Atestado Médico", "Folga Concedida", "Justificado (Remover Ocorrência)"], 
+                            [
+                                "Falta Injustificada", 
+                                "Atestado Médico", 
+                                "Folga Concedida", 
+                                "Presente / Veio Trabalhar (Remover Falta)", 
+                                "Justificado (Remover Ocorrência)"
+                            ], 
                             key=f"sel_tipo_p_{idx_p}"
                         )
                     with p_col3:
@@ -868,7 +878,7 @@ if verificar_senha():
                     with p_col4:
                         if st.button("💾 Resolver", key=f"btn_res_{idx_p}"):
                             mask_orig = (df_faltas['Funcionário'] == r_pend['Funcionário']) & (df_faltas['Data'] == r_pend['Data'])
-                            if novo_tipo == "Justificado (Remover Ocorrência)":
+                            if novo_tipo in ["Justificado (Remover Ocorrência)", "Presente / Veio Trabalhar (Remover Falta)"]:
                                 df_faltas = df_faltas[~mask_orig].reset_index(drop=True)
                             else:
                                 df_faltas.loc[mask_orig, 'Tipo'] = novo_tipo
@@ -948,6 +958,7 @@ if verificar_senha():
                     btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia", disabled=disabled_flag)
                     
                     if btn_salvar_chamada and not disabled_flag:
+                        # Limpa os registros existentes do mesmo dia/setor para evitar duplicidade acumulada
                         if not df_faltas.empty and 'Data' in df_faltas.columns:
                             df_faltas = df_faltas[~((df_faltas['Data'] == data_chamada_str) & (df_faltas['Setor'] == setor_selecionado))]
                         
@@ -1059,7 +1070,7 @@ if verificar_senha():
                 colabs_lista = sorted(df_filtrado[df_filtrado['Status'].astype(str).str.strip().str.lower() == 'ativo']['Funcionário'].unique()) if not df_filtrado.empty else []
                 nome_colab = st.selectbox("Selecione o Colaborador:", colabs_lista)
                 c_t1, c_t2, c_t3 = st.columns([1.5, 1, 1])
-                tipo_falta = c_t1.selectbox("Tipo de Ocorrência", ["Falta Injustificada", "Atestado Médico", "Folga Concedida"])
+                tipo_falta = c_t1.selectbox("Tipo de Ocorrência", ["Falta Injustificada", "Atestado Médico", "Folga Concedida", "Presente (Correção de Chamada)"])
                 data_falta = c_t2.date_input("Data do Ocorrido", value=hoje, format="DD/MM/YYYY")
                 dias_falta = c_t3.number_input("Qtd. de Dias", min_value=1, max_value=60, value=1, step=1)
                 c_c1, c_c2 = st.columns([1, 2])
@@ -1068,21 +1079,26 @@ if verificar_senha():
                 btn_salvar_avulso = st.form_submit_button("💾 Salvar Lançamento Avulso")
                 
                 if btn_salvar_avulso and nome_colab:
-                    d_colab = df_filtrado[df_filtrado['Funcionário'] == nome_colab].iloc[0]
-                    nova_ocorrencia = {
-                        "Matricula": str(d_colab.get('Matricula', '')),
-                        "Funcionário": nome_colab,
-                        "Setor": d_colab.get('Setor', ''),
-                        "Data": data_falta.strftime('%d/%m/%Y'),
-                        "Tipo": tipo_falta,
-                        "Dias": dias_falta,
-                        "CID": cid_input.strip().upper() if cid_input.strip() else "-",
-                        "Motivo": motivo_obs,
-                        "dt_falta": data_falta
-                    }
-                    df_faltas = pd.concat([df_faltas, pd.DataFrame([nova_ocorrencia])], ignore_index=True)
+                    if tipo_falta == "Presente (Correção de Chamada)":
+                        data_falta_str = data_falta.strftime('%d/%m/%Y')
+                        df_faltas = df_faltas[~((df_faltas['Funcionário'] == nome_colab) & (df_faltas['Data'] == data_falta_str))].reset_index(drop=True)
+                    else:
+                        d_colab = df_filtrado[df_filtrado['Funcionário'] == nome_colab].iloc[0]
+                        nova_ocorrencia = {
+                            "Matricula": str(d_colab.get('Matricula', '')),
+                            "Funcionário": nome_colab,
+                            "Setor": d_colab.get('Setor', ''),
+                            "Data": data_falta.strftime('%d/%m/%Y'),
+                            "Tipo": tipo_falta,
+                            "Dias": dias_falta,
+                            "CID": cid_input.strip().upper() if cid_input.strip() else "-",
+                            "Motivo": motivo_obs,
+                            "dt_falta": data_falta
+                        }
+                        df_faltas = pd.concat([df_faltas, pd.DataFrame([nova_ocorrencia])], ignore_index=True)
+                    
                     salvar_faltas(df_faltas)
-                    st.toast("✅ Ocorrência avulsa salva!", icon="📌")
+                    st.toast("✅ Registro atualizado!", icon="📌")
                     st.rerun()
 
         with tab_hist_f:
