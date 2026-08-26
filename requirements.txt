@@ -1,8 +1,8 @@
 streamlit
 pandas
 plotly
-openpyxl
-reportlab
-google-genai
 gspread
-oauth2client
+reportlab
+openpyxl
+google-genai
+st-gsheets-connection
