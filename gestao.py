@@ -180,7 +180,8 @@ def carregar_faltas():
                 if col not in df_f.columns and col != 'dt_falta':
                     df_f[col] = ""
             if 'Data' in df_f.columns:
-                df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
+                df_f['Data'] = df_f['Data'].astype(str).str.strip()
+                df_f['dt_falta'] = pd.to_datetime(df_f['Data'], format='%d/%m/%Y', errors='coerce').dt.date
             else:
                 df_f['dt_falta'] = None
         else:
@@ -505,6 +506,7 @@ if verificar_senha():
     df = carregar_dados()
     df_faltas = carregar_faltas()
     hoje = date.today()
+    hoje_str = hoje.strftime('%d/%m/%Y')
 
     perfil_usuario = st.session_state.get("perfil", "Gestor")
     nome_usuario = st.session_state.get("usuario_nome", "Usuário")
@@ -562,22 +564,23 @@ if verificar_senha():
 
         df_apenas_exp = df_exp[(df_exp['Status'].astype(str).str.strip().str.lower() == 'ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
 
-        # LISTA DE COLABORADORES ATUALMENTE INATIVOS / EM FÉRIAS / AFASTADOS
+        # LISTA GLOBAL DE INATIVOS/FÉRIAS/AFASTADOS
         colabs_inativos_geral = df[df['Status'].astype(str).str.contains('férias|ferias|afastado|inss|licença|desligado', case=False, na=False)]['Funcionário'].tolist()
 
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral de Indicadores")
             
-            # FILTRA APENAS QUEM ESTÁ COM STATUS 'ATIVO'
+            # FILTRA APENAS QUEM ESTÁ ATIVO NO CADASTRO
             df_ativos_geral = df_filtrado[df_filtrado['Status'].astype(str).str.strip().str.lower() == 'ativo']
             df_ativos_operacional = df_ativos_geral[~df_ativos_geral['Cargo'].apply(eh_lideranca)]
             
             df_ferias_st = df_filtrado[df_filtrado['Status'].astype(str).str.contains('férias|ferias', case=False, na=False)]
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('atestado|afastado|inss|licença|licenca', case=False, na=False)]
             
-            if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns:
+            # BUSCA CHAMADA DO DIA COM COMPARAÇÃO DIRETA DE STRING DD/MM/AAAA
+            if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
                 chamada_hoje_existente = df_faltas_filtrado[
-                    (df_faltas_filtrado['dt_falta'] == hoje) & 
+                    (df_faltas_filtrado['Data'] == hoje_str) & 
                     (~df_faltas_filtrado['Funcionário'].isin(colabs_inativos_geral))
                 ]
             else:
@@ -598,7 +601,7 @@ if verificar_senha():
                 qtd_faltantes_hoje = 0
                 df_folgas_hoje = pd.DataFrame()
                 df_ausencias_hoje = pd.DataFrame()
-                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada. Vá em 'Chamada & Faltas do Dia' para registrar a frequência.")
+                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada nesta base. Vá em 'Chamada & Faltas do Dia' para registrar a frequência.")
 
             pendencias_ant = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
@@ -648,7 +651,7 @@ if verificar_senha():
                         nomes_faltantes_ou_folga = chamada_hoje_existente[chamada_hoje_existente['Tipo'] != 'Presente']['Funcionário'].tolist()
                         df_pres_detalhe = df_ativos_operacional[~df_ativos_operacional['Funcionário'].isin(nomes_faltantes_ou_folga)]
                         cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
-                        exibir_modal_detalhes(f"Operação Presente em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
+                        exibir_modal_detalhes(f"Operação Presente em {hoje_str}", df_pres_detalhe[cols_m])
                     else:
                         st.warning("Realize a chamada do dia primeiro.")
                     
@@ -656,13 +659,13 @@ if verificar_senha():
                 st.metric("🏖️ Folgas Hoje", qtd_folgas_hoje if chamada_realizada else "Pendente")
                 if st.button("🔍 Ver Folgas de Hoje", key="btn_ver_folgas_hoje"):
                     cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Motivo'] if c in df_folgas_hoje.columns]
-                    exibir_modal_detalhes(f"Colaboradores de Folga em {hoje.strftime('%d/%m/%Y')}", df_folgas_hoje if not df_folgas_hoje.empty else pd.DataFrame())
+                    exibir_modal_detalhes(f"Colaboradores de Folga em {hoje_str}", df_folgas_hoje if not df_folgas_hoje.empty else pd.DataFrame())
 
             with p3:
                 st.metric("🔴 Faltantes / Ausentes Hoje", qtd_faltantes_hoje if chamada_realizada else "Pendente")
                 if st.button("🔍 Ver Faltantes de Hoje", key="btn_ver_faltas_hoje"):
                     cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Motivo'] if c in df_ausencias_hoje.columns]
-                    exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
+                    exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje_str}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
 
             st.markdown("---")
 
@@ -695,7 +698,7 @@ if verificar_senha():
             c5.metric("Faltas Hoje", qtd_faltantes_hoje)
             if c5.button("🔍 Ver Faltas", key="btn_faltas_quadro"):
                 cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in df_ausencias_hoje.columns]
-                exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
+                exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje_str}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
 
             niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
             c6.metric("Aniversariantes", len(niver_mes))
@@ -751,8 +754,8 @@ if verificar_senha():
                                 
                                 resumo_equipe = df_filtrado[['Funcionário', 'Setor', 'Cargo', 'Status']].to_string(index=False)
                                 
-                                if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns:
-                                    faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje].copy()
+                                if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
+                                    faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['Data'] == hoje_str].copy()
                                     if not faltas_hoje.empty and 'Funcionário' in faltas_hoje.columns:
                                         faltas_valida_hoje = faltas_hoje[~faltas_hoje['Funcionário'].isin(colabs_inativos_geral)]
                                         resumo_faltas_hoje = faltas_valida_hoje[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].to_string(index=False) if not faltas_valida_hoje.empty else "Nenhuma falta registrada hoje para colaboradores ativos."
@@ -769,7 +772,7 @@ if verificar_senha():
                                 1. Desconsidere qualquer falta registrada para colaboradores cujo Status atual na empresa seja 'Férias', 'Afastado' ou 'INSS'.
                                 2. Se um colaborador estiver marcado como 'Férias' no cadastro de equipe, ele NÃO deve ser contado como falta.
 
-                                DATA ATUAL: {hoje.strftime('%d/%m/%Y')}
+                                DATA ATUAL: {hoje_str}
                                 SETOR SELECIONADO: {setor_selecionado}
 
                                 CADASTRO ATUAL DA EQUIPE (STATUS VIGENTE):
@@ -827,7 +830,7 @@ if verificar_senha():
                                 else:
                                     df_faltas.loc[mask_orig, 'Tipo'] = novo_tipo
                                     df_faltas.loc[mask_orig, 'CID'] = novo_cid.upper() if novo_cid else "-"
-                                    df_faltas.loc[mask_orig, 'Motivo'] = f"Tratado pelo DP em {hoje.strftime('%d/%m/%Y')}"
+                                    df_faltas.loc[mask_orig, 'Motivo'] = f"Tratado pelo DP em {hoje_str}"
                                 
                                 salvar_faltas(df_faltas)
                                 st.toast("✅ Ocorrência regularizada com sucesso!", icon="🎉")
@@ -847,11 +850,12 @@ if verificar_senha():
                     st.warning("Nenhum colaborador operacional ativo no setor para chamada.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
+                    data_chamada_str = data_chamada.strftime('%d/%m/%Y')
                     
                     registros_data = df_faltas[
-                        (df_faltas['dt_falta'] == data_chamada) & 
+                        (df_faltas['Data'] == data_chamada_str) & 
                         (df_faltas['Setor'] == setor_selecionado)
-                    ] if not df_faltas.empty and 'dt_falta' in df_faltas.columns else pd.DataFrame()
+                    ] if not df_faltas.empty and 'Data' in df_faltas.columns else pd.DataFrame()
 
                     chamada_ja_feita = not registros_data.empty
 
@@ -861,7 +865,7 @@ if verificar_senha():
                     disabled_flag = chamada_ja_feita and not st.session_state["desbloquear_chamada"]
 
                     if chamada_ja_feita and not st.session_state["desbloquear_chamada"]:
-                        st.success(f"🔒 **Chamada do dia {data_chamada.strftime('%d/%m/%Y')} já foi realizada e salva!** Opções bloqueadas para evitar duplicidade.")
+                        st.success(f"🔒 **Chamada do dia {data_chamada_str} já foi realizada e salva!** Opções bloqueadas para evitar duplicidade.")
                         if st.button("🔓 Desbloquear para Reabrir Chamada"):
                             st.session_state["desbloquear_chamada"] = True
                             st.rerun()
@@ -902,8 +906,8 @@ if verificar_senha():
                         btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia", disabled=disabled_flag)
                         
                         if btn_salvar_chamada and not disabled_flag:
-                            if not df_faltas.empty and 'dt_falta' in df_faltas.columns:
-                                df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
+                            if not df_faltas.empty and 'Data' in df_faltas.columns:
+                                df_faltas = df_faltas[~((df_faltas['Data'] == data_chamada_str) & (df_faltas['Setor'] == setor_selecionado))]
                             
                             novas_f = []
                             for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
@@ -916,7 +920,7 @@ if verificar_senha():
                                         "Matricula": str(colab_c.get('Matricula', '')),
                                         "Funcionário": nome_c,
                                         "Setor": colab_c.get('Setor', ''),
-                                        "Data": data_chamada.strftime('%d/%m/%Y'),
+                                        "Data": data_chamada_str,
                                         "Tipo": "Folga Concedida",
                                         "Dias": 1,
                                         "CID": "-",
@@ -928,7 +932,7 @@ if verificar_senha():
                                         "Matricula": str(colab_c.get('Matricula', '')),
                                         "Funcionário": nome_c,
                                         "Setor": colab_c.get('Setor', ''),
-                                        "Data": data_chamada.strftime('%d/%m/%Y'),
+                                        "Data": data_chamada_str,
                                         "Tipo": "Presente",
                                         "Dias": 0,
                                         "CID": "-",
@@ -941,7 +945,7 @@ if verificar_senha():
                                         "Matricula": str(colab_c.get('Matricula', '')),
                                         "Funcionário": nome_c,
                                         "Setor": colab_c.get('Setor', ''),
-                                        "Data": data_chamada.strftime('%d/%m/%Y'),
+                                        "Data": data_chamada_str,
                                         "Tipo": tipo_inicial,
                                         "Dias": 1,
                                         "CID": "-",
@@ -957,10 +961,10 @@ if verificar_senha():
                             st.rerun()
 
                     faltas_da_chamada = df_faltas_filtrado[
-                        (df_faltas_filtrado['dt_falta'] == data_chamada) & 
+                        (df_faltas_filtrado['Data'] == data_chamada_str) & 
                         (df_faltas_filtrado['Tipo'] != 'Presente') &
                         (~df_faltas_filtrado['Funcionário'].isin(colabs_inativos_geral))
-                    ] if not df_faltas_filtrado.empty and 'dt_falta' in df_faltas_filtrado.columns else pd.DataFrame()
+                    ] if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns else pd.DataFrame()
                     
                     if not faltas_da_chamada.empty and 'Tipo' in faltas_da_chamada.columns:
                         qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
@@ -975,7 +979,7 @@ if verificar_senha():
                     st.markdown("##### 📲 Resumo Formatado para Envio via WhatsApp / Grupo de Trabalho:")
                     
                     txt_wa = f"📊 *RESUMO DE PRESENÇA - TROPICAL DISTRIBUIDORA*\n"
-                    txt_wa += f"📅 *Data:* {data_chamada.strftime('%d/%m/%Y')} | *Setor:* {setor_selecionado}\n"
+                    txt_wa += f"📅 *Data:* {data_chamada_str} | *Setor:* {setor_selecionado}\n"
                     txt_wa += f"🟢 *Presentes (Operação):* {qtd_p_ch} colaboradores\n"
                     if qtd_folgas_ch > 0:
                         txt_wa += f"🏖️ *Folgas:* {qtd_folgas_ch} colaboradores\n"
@@ -1186,7 +1190,6 @@ if verificar_senha():
                         idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
                         e_status = e_st1.selectbox("Status Atual:", opts_status, index=idx_st)
                         
-                        # CONVERTE A DATA DE FÉRIAS EXISTENTE EM UM OBJETO DE DATA PARA O SELETOR NATIVO
                         raw_f_data = colab_row.get('Ultimas_Ferias')
                         data_f_padrao = pd.to_datetime(raw_f_data, dayfirst=True, errors='coerce').date() if pd.notnull(raw_f_data) and str(raw_f_data).strip() not in ['', 'None', 'nan'] else hoje
                         e_ult_ferias_dt = e_st2.date_input("Data Início / ÚLTIMAS FÉRIAS:", value=data_f_padrao, format="DD/MM/YYYY")
