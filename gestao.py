@@ -1153,7 +1153,14 @@ if verificar_senha():
                     c_cargo = c_s2.text_input("Cargo:")
                     c_d1, c_d2, c_d3 = st.columns(3)
                     c_adm = c_d1.date_input("Data de Admissão:", value=hoje, format="DD/MM/YYYY")
-                    c_nasc = c_d2.date_input("Data de Nascimento:", value=date(1995, 1, 1), format="DD/MM/YYYY")
+                    c_nasc = c_d2.date_input(
+    "Data de Nascimento:", 
+    value=date(2000, 1, 1), 
+    min_value=date(1950, 1, 1), 
+    max_value=hoje, 
+    format="DD/MM/YYYY"
+)
+
                     c_status = c_d3.selectbox("Status Inicial:", ["Ativo", "Férias", "Afastado", "INSS", "Desligado"])
                     btn_salvar_colab = st.form_submit_button("💾 Salvar Colaborador")
                     if btn_salvar_colab and c_nome:
