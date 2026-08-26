@@ -10,7 +10,7 @@ import ferias
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import gspread
+from streamlit_gsheets import GSheetsConnection
 from google import genai
 
 importlib.reload(ferias)
@@ -120,27 +120,19 @@ TODOS_MODULOS = [
 
 TERMOS_LIDERANCA = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider', 'diretor']
 
-# --- CONEXÃO COM GOOGLE SHEETS VIA GSPREAD CORRIGIDA ---
-def obter_cliente_gspread():
-    if "gspread_client" not in st.session_state:
-        st.session_state.gspread_client = gspread.Client(auth=None)
-    return st.session_state.gspread_client
+# --- CONEXÃO DIRETA E SEGURA VIA STREAMLIT CONNECTIONS ---
+def obter_conexao_sheets():
+    return st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     cols_padrao = ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão', 'Nascimento', 'Status', 'Ultimas_Ferias']
     df = pd.DataFrame()
     
-    url_sheets = st.secrets.get("GSHEETS_URL", "")
-    if url_sheets:
-        try:
-            gc = obter_cliente_gspread()
-            sh = gc.open_by_url(url_sheets)
-            worksheet = sh.worksheet("equipe")
-            dados = worksheet.get_all_records()
-            if dados:
-                df = pd.DataFrame(dados)
-        except Exception:
-            pass
+    try:
+        conn = obter_conexao_sheets()
+        df = conn.read(worksheet="equipe", ttl=0)
+    except Exception:
+        pass
 
     if (df is None or df.empty) and os.path.exists("equipe.xlsx"):
         try:
@@ -180,17 +172,11 @@ def carregar_faltas():
     cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
     df_f = pd.DataFrame()
     
-    url_sheets = st.secrets.get("GSHEETS_URL", "")
-    if url_sheets:
-        try:
-            gc = obter_cliente_gspread()
-            sh = gc.open_by_url(url_sheets)
-            worksheet = sh.worksheet("faltas")
-            dados = worksheet.get_all_records()
-            if dados:
-                df_f = pd.DataFrame(dados)
-        except Exception:
-            pass
+    try:
+        conn = obter_conexao_sheets()
+        df_f = conn.read(worksheet="faltas", ttl=0)
+    except Exception:
+        pass
 
     if (df_f is None or df_f.empty) and os.path.exists("faltas.xlsx"):
         try:
@@ -212,17 +198,11 @@ def carregar_faltas():
 
 def carregar_usuarios():
     df_u = pd.DataFrame()
-    url_sheets = st.secrets.get("GSHEETS_URL", "")
-    if url_sheets:
-        try:
-            gc = obter_cliente_gspread()
-            sh = gc.open_by_url(url_sheets)
-            worksheet = sh.worksheet("usuarios")
-            dados = worksheet.get_all_records()
-            if dados:
-                df_u = pd.DataFrame(dados)
-        except Exception:
-            pass
+    try:
+        conn = obter_conexao_sheets()
+        df_u = conn.read(worksheet="usuarios", ttl=0)
+    except Exception:
+        pass
 
     if (df_u is None or df_u.empty) and os.path.exists("usuarios.xlsx"):
         try:
@@ -250,18 +230,12 @@ def salvar_dados(df_salvar):
     cols_salvar = [c for c in df_salvar.columns if c not in cols_ignorar]
     df_export = df_salvar[cols_salvar].fillna("").astype(str)
     
-    url_sheets = st.secrets.get("GSHEETS_URL", "")
-    if url_sheets:
-        try:
-            gc = obter_cliente_gspread()
-            sh = gc.open_by_url(url_sheets)
-            ws = sh.worksheet("equipe")
-            valores = [df_export.columns.values.tolist()] + df_export.values.tolist()
-            ws.clear()
-            ws.update(range_name="A1", values=valores)
-            st.success("✅ Gravado com sucesso na planilha do Google Drive!")
-        except Exception as e:
-            st.error(f"Erro ao salvar equipe no Sheets: {e}")
+    try:
+        conn = obter_conexao_sheets()
+        conn.update(worksheet="equipe", data=df_export)
+        st.success("✅ Gravado com sucesso na planilha do Google Drive!")
+    except Exception as e:
+        st.error(f"Erro ao salvar equipe no Sheets: {e}")
     df_export.to_excel("equipe.xlsx", index=False)
 
 def salvar_faltas(df_f):
@@ -269,34 +243,22 @@ def salvar_faltas(df_f):
     df_f = df_f.drop_duplicates(subset=['Funcionário', 'Data'], keep='last')
     df_export = df_f[cols_salvar].fillna("").astype(str)
     
-    url_sheets = st.secrets.get("GSHEETS_URL", "")
-    if url_sheets:
-        try:
-            gc = obter_cliente_gspread()
-            sh = gc.open_by_url(url_sheets)
-            ws = sh.worksheet("faltas")
-            valores = [df_export.columns.values.tolist()] + df_export.values.tolist()
-            ws.clear()
-            ws.update(range_name="A1", values=valores)
-            st.success("✅ Chamada/Faltas gravadas com sucesso no Google Drive!")
-        except Exception as e:
-            st.error(f"Erro ao salvar faltas no Sheets: {e}")
+    try:
+        conn = obter_conexao_sheets()
+        conn.update(worksheet="faltas", data=df_export)
+        st.success("✅ Chamada/Faltas gravadas com sucesso no Google Drive!")
+    except Exception as e:
+        st.error(f"Erro ao salvar faltas no Sheets: {e}")
     df_export.to_excel("faltas.xlsx", index=False)
 
 def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
-    url_sheets = st.secrets.get("GSHEETS_URL", "")
-    if url_sheets:
-        try:
-            gc = obter_cliente_gspread()
-            sh = gc.open_by_url(url_sheets)
-            ws = sh.worksheet("usuarios")
-            valores = [df_u.columns.values.tolist()] + df_u.values.tolist()
-            ws.clear()
-            ws.update(range_name="A1", values=valores)
-            st.success("✅ Usuários atualizados no Google Drive!")
-        except Exception as e:
-            st.error(f"Erro ao salvar usuários no Sheets: {e}")
+    try:
+        conn = obter_conexao_sheets()
+        conn.update(worksheet="usuarios", data=df_u)
+        st.success("✅ Usuários atualizados no Google Drive!")
+    except Exception as e:
+        st.error(f"Erro ao salvar usuários no Sheets: {e}")
     df_u.to_excel("usuarios.xlsx", index=False)
 
 def eh_lideranca(cargo_str):
