@@ -123,7 +123,7 @@ def obter_cliente_gspread():
         st.session_state.gspread_client = gspread.public_client()
     return st.session_state.gspread_client
 
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=1)
 def carregar_dados():
     try:
         url_sheets = st.secrets.get("GSHEETS_URL", "")
@@ -168,7 +168,7 @@ def carregar_dados():
     except Exception:
         return pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
 
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=1)
 def carregar_faltas():
     cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
     try:
@@ -225,7 +225,12 @@ def carregar_usuarios():
         return pd.DataFrame()
 
 def salvar_dados(df_salvar):
-    cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
+    cols_ignorar = ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']
+    cols_salvar = [c for c in df_salvar.columns if c not in cols_ignorar]
+    
+    df_export = df_salvar[cols_salvar].copy()
+    
+    # Garantir tratamento para o Google Sheets
     url_sheets = st.secrets.get("GSHEETS_URL", "")
     if url_sheets:
         try:
@@ -233,14 +238,16 @@ def salvar_dados(df_salvar):
             sh = gc.open_by_url(url_sheets)
             ws = sh.worksheet("equipe")
             ws.clear()
-            ws.update([df_salvar[cols_salvar].columns.values.tolist()] + df_salvar[cols_salvar].fillna("").values.tolist())
+            ws.update([df_export.columns.values.tolist()] + df_export.fillna("").astype(str).values.tolist())
         except Exception as e:
             st.error(f"Erro ao salvar equipe no Sheets: {e}")
-    df_salvar[cols_salvar].to_excel("equipe.xlsx", index=False)
+    df_export.to_excel("equipe.xlsx", index=False)
     st.cache_data.clear()
 
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
+    df_export = df_f[cols_salvar].copy()
+    
     url_sheets = st.secrets.get("GSHEETS_URL", "")
     if url_sheets:
         try:
@@ -248,10 +255,10 @@ def salvar_faltas(df_f):
             sh = gc.open_by_url(url_sheets)
             ws = sh.worksheet("faltas")
             ws.clear()
-            ws.update([df_f[cols_salvar].columns.values.tolist()] + df_f[cols_salvar].fillna("").values.tolist())
+            ws.update([df_export.columns.values.tolist()] + df_export.fillna("").astype(str).values.tolist())
         except Exception as e:
             st.error(f"Erro ao salvar faltas no Sheets: {e}")
-    df_f[cols_salvar].to_excel("faltas.xlsx", index=False)
+    df_export.to_excel("faltas.xlsx", index=False)
     st.cache_data.clear()
 
 def salvar_usuarios(df_u):
@@ -359,45 +366,6 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
         return True, "E-mail enviado com sucesso!"
     except Exception as e:
         return False, str(e)
-
-def gerar_pdf_simples(titulo, colunas, dados):
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib import colors
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    elements = []
-
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1B3B2B"), spaceAfter=15)
-    hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
-    elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
-    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora — Painel de Gestão & DP</font>", styles['Normal']))
-    elements.append(Spacer(1, 15))
-
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
-    for linha in dados:
-        row_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in linha]
-        table_data.append(row_data)
-
-    t = Table(table_data, repeatRows=1)
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#E2E8F0")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#1E293B")),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-    ]))
-    elements.append(t)
-    doc.build(elements)
-    pdf_out = buffer.getvalue()
-    buffer.close()
-    return pdf_out
 
 def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, ferias_cnt, afastados_cnt, ocorrencias_cnt):
     from reportlab.lib.pagesizes import letter, landscape
@@ -619,7 +587,6 @@ if verificar_senha():
                 df_folgas_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] == 'Folga Concedida']
                 df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'].isin(['Falta Injustificada', 'Ausência / A Confirmar', 'Atestado Médico'])]
                 
-                # REFILTRAGEM EM TEMPO REAL: EXPURGA FÉRIAS E AFASTADOS
                 df_ausencias_hoje = df_ausencias_hoje[~df_ausencias_hoje['Funcionário'].isin(colabs_inativos_geral)]
                 
                 qtd_folgas_hoje = len(df_folgas_hoje)
@@ -782,15 +749,12 @@ if verificar_senha():
                             try:
                                 client = genai.Client(api_key=gemini_key)
                                 
-                                # MONTAGEM DO RESUMO COMPLETO PARA A IA
                                 df_ia = df_filtrado.copy()
                                 df_ia['Admissao_Txt'] = df_ia['dt_adm'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "N/A")
                                 
-                                # 1. CADASTRO COMPLETO
                                 cols_cad_ia = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissao_Txt'] if c in df_ia.columns]
                                 resumo_equipe = df_ia[cols_cad_ia].to_string(index=False)
                                 
-                                # 2. EXPERIÊNCIA
                                 if not df_apenas_exp.empty:
                                     df_exp_ia = df_apenas_exp.copy()
                                     df_exp_ia['Venc_45d'] = df_exp_ia['exp_45'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "N/A")
@@ -799,14 +763,12 @@ if verificar_senha():
                                 else:
                                     resumo_experiencia = "Nenhum colaborador atualmente no período de experiência de 90 dias."
 
-                                # 3. ESCALA E HISTÓRICO DE FÉRIA
                                 if 'Ultimas_Ferias' in df_ia.columns:
                                     cols_f_ia = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Admissao_Txt', 'Ultimas_Ferias', 'Status'] if c in df_ia.columns]
                                     resumo_escala_ferias = df_ia[cols_f_ia].to_string(index=False)
                                 else:
                                     resumo_escala_ferias = "Sem registro de histórico ou agendamento de férias na base."
 
-                                # 4. OCORRÊNCIAS E FALTAS
                                 if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
                                     faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['Data'] == hoje_str].copy()
                                     if not faltas_hoje.empty and 'Funcionário' in faltas_hoje.columns:
@@ -1053,7 +1015,6 @@ if verificar_senha():
                         
                     st.code(txt_wa, language="markdown")
 
-                    # NOTIFICAÇÃO DE ADVERTÊNCIA PARA FALTAS INJUSTIFICADAS (DATA SELECIONADA OU ANTERIORES)
                     faltas_inj = faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Falta Injustificada'] if not faltas_da_chamada.empty else pd.DataFrame()
                     if not faltas_inj.empty:
                         st.markdown("---")
@@ -1242,12 +1203,14 @@ if verificar_senha():
                             "Cargo": str(c_cargo).strip(),
                             "Admissão": c_adm.strftime('%d/%m/%Y'),
                             "Nascimento": c_nasc.strftime('%d/%m/%Y'),
-                            "Status": str(c_status)
+                            "Status": str(c_status),
+                            "Ultimas_Ferias": ""
                         }
                         df = pd.concat([df, pd.DataFrame([novo_c])], ignore_index=True)
                         salvar_dados(df)
                         st.toast(f"✅ Colaborador '{c_nome}' cadastrado com sucesso!", icon="🎉")
                         st.rerun()
+
             with tab_edit_colab:
                 lista_colabs_cad = sorted(df['Funcionário'].dropna().unique())
                 colab_sel_edit = st.selectbox("Selecione o Colaborador para Alterar:", lista_colabs_cad)
@@ -1264,7 +1227,7 @@ if verificar_senha():
                         e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
                         e_st1, e_st2 = st.columns(2)
                         opts_status = ["Ativo", "Férias", "Afastado", "INSS", "Licença", "Desligado"]
-                        st_atual = colab_row.get('Status', 'Ativo')
+                        st_atual = str(colab_row.get('Status', 'Ativo')).strip()
                         idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
                         e_status = e_st1.selectbox("Status Atual:", opts_status, index=idx_st)
                         
