@@ -130,7 +130,8 @@ def carregar_dados():
     
     try:
         conn = obter_conexao_sheets()
-        df = conn.read(worksheet="equipe", ttl=0)
+        # Aplicação de cache de 5 minutos para otimizar leitura
+        df = conn.read(worksheet="equipe", ttl="5m")
     except Exception:
         pass
 
@@ -174,7 +175,8 @@ def carregar_faltas():
     
     try:
         conn = obter_conexao_sheets()
-        df_f = conn.read(worksheet="faltas", ttl=0)
+        # Aplicação de cache de 5 minutos para otimizar leitura
+        df_f = conn.read(worksheet="faltas", ttl="5m")
     except Exception:
         pass
 
@@ -200,7 +202,7 @@ def carregar_usuarios():
     df_u = pd.DataFrame()
     try:
         conn = obter_conexao_sheets()
-        df_u = conn.read(worksheet="usuarios", ttl=0)
+        df_u = conn.read(worksheet="usuarios", ttl="5m")
     except Exception:
         pass
 
