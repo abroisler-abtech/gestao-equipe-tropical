@@ -21,6 +21,15 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- FUNÇÃO PARA EXIBIR MODAIS DE DETALHES DO DASHBOARD ---
+@st.dialog("📋 Detalhes dos Colaboradores")
+def exibir_modal_detalhes(titulo, df_exibir):
+    st.markdown(f"#### {titulo}")
+    if df_exibir.empty:
+        st.info("Nenhum registro encontrado para este filtro.")
+    else:
+        st.dataframe(df_exibir, use_container_width=True)
+
 # --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
