@@ -10,6 +10,7 @@ import ferias
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 from google import genai
 
 importlib.reload(ferias)
@@ -83,10 +84,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-ARQUIVO_DADOS = "equipe.xlsx"
-ARQUIVO_FALTAS = "faltas.xlsx"
-ARQUIVO_USUARIOS = "usuarios.xlsx"
-
 TODOS_MODULOS = [
     "Dashboard & Alertas",
     "🤖 Assistente de IA do Gestor",
@@ -104,6 +101,130 @@ TODOS_MODULOS = [
 ]
 
 TERMOS_LIDERANCA = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider', 'diretor']
+
+# --- CONEXÃO COM GOOGLE SHEETS ---
+def obter_conexao_gsheets():
+    return st.connection("gsheets", type=GSheetsConnection)
+
+def carregar_dados():
+    try:
+        conn = obter_conexao_gsheets()
+        url_sheets = st.secrets.get("GSHEETS_URL", "")
+        if url_sheets:
+            df = conn.read(spreadsheet=url_sheets, worksheet="equipe", ttl="0s")
+        else:
+            df = pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
+        
+        if not df.empty:
+            df.columns = df.columns.str.strip()
+            col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
+            col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
+            
+            df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
+            if col_nasc in df.columns:
+                df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
+                df['dt_nasc'] = df['dt_nasc_dt'].dt.date
+            else:
+                df['dt_nasc_dt'] = pd.NaT
+                df['dt_nasc'] = None
+
+            if 'Vaga' in df.columns:
+                df['Vaga'] = df['Vaga'].astype(str).str.replace('.0', '', regex=False)
+            if 'Matricula' in df.columns:
+                df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
+            if 'Ultimas_Ferias' not in df.columns:
+                df['Ultimas_Ferias'] = None
+            else:
+                df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str)
+                df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
+            if 'Decisao_Experiencia' not in df.columns:
+                df['Decisao_Experiencia'] = None
+            if 'Status' not in df.columns:
+                df['Status'] = 'Ativo'
+            else:
+                df['Status'] = df['Status'].fillna('Ativo')
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar 'equipe': {e}")
+        return pd.DataFrame()
+
+def carregar_faltas():
+    cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
+    try:
+        conn = obter_conexao_gsheets()
+        url_sheets = st.secrets.get("GSHEETS_URL", "")
+        if url_sheets:
+            df_f = conn.read(spreadsheet=url_sheets, worksheet="faltas", ttl="0s")
+        else:
+            df_f = pd.read_excel("faltas.xlsx") if os.path.exists("faltas.xlsx") else pd.DataFrame(columns=cols_padrao)
+
+        if not df_f.empty:
+            df_f.columns = df_f.columns.str.strip()
+            for col in cols_padrao:
+                if col not in df_f.columns and col != 'dt_falta':
+                    df_f[col] = ""
+            if 'Data' in df_f.columns:
+                df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
+            else:
+                df_f['dt_falta'] = None
+        else:
+            df_f = pd.DataFrame(columns=cols_padrao)
+        return df_f
+    except Exception as e:
+        return pd.DataFrame(columns=cols_padrao)
+
+def carregar_usuarios():
+    try:
+        conn = obter_conexao_gsheets()
+        url_sheets = st.secrets.get("GSHEETS_URL", "")
+        if url_sheets:
+            df_u = conn.read(spreadsheet=url_sheets, worksheet="usuarios", ttl="0s")
+        else:
+            df_u = pd.read_excel("usuarios.xlsx") if os.path.exists("usuarios.xlsx") else pd.DataFrame()
+
+        if not df_u.empty:
+            df_u.columns = df_u.columns.str.strip()
+            for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos', 'Telefone']:
+                if col in df_u.columns:
+                    df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
+                else:
+                    df_u[col] = ""
+            return df_u
+        else:
+            dados_iniciais = [
+                {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
+                {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador", "Telefone": ""}
+            ]
+            return pd.DataFrame(dados_iniciais)
+    except Exception:
+        return pd.DataFrame()
+
+def salvar_dados(df_salvar):
+    cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
+    url_sheets = st.secrets.get("GSHEETS_URL", "")
+    if url_sheets:
+        conn = obter_conexao_gsheets()
+        conn.update(spreadsheet=url_sheets, worksheet="equipe", data=df_salvar[cols_salvar])
+    else:
+        df_salvar[cols_salvar].to_excel("equipe.xlsx", index=False)
+
+def salvar_faltas(df_f):
+    cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
+    url_sheets = st.secrets.get("GSHEETS_URL", "")
+    if url_sheets:
+        conn = obter_conexao_gsheets()
+        conn.update(spreadsheet=url_sheets, worksheet="faltas", data=df_f[cols_salvar])
+    else:
+        df_f[cols_salvar].to_excel("faltas.xlsx", index=False)
+
+def salvar_usuarios(df_u):
+    df_u = df_u.astype(str)
+    url_sheets = st.secrets.get("GSHEETS_URL", "")
+    if url_sheets:
+        conn = obter_conexao_gsheets()
+        conn.update(spreadsheet=url_sheets, worksheet="usuarios", data=df_u)
+    else:
+        df_u.to_excel("usuarios.xlsx", index=False)
 
 def eh_lideranca(cargo_str):
     if not cargo_str or pd.isna(cargo_str):
@@ -174,29 +295,6 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
         return True, "E-mail enviado com sucesso!"
     except Exception as e:
         return False, str(e)
-
-def carregar_usuarios():
-    if os.path.exists(ARQUIVO_USUARIOS):
-        df_u = pd.read_excel(ARQUIVO_USUARIOS)
-        df_u.columns = df_u.columns.str.strip()
-        for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos', 'Telefone']:
-            if col in df_u.columns:
-                df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
-            else:
-                df_u[col] = ""
-        return df_u
-    else:
-        dados_iniciais = [
-            {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador", "Telefone": ""}
-        ]
-        df_u = pd.DataFrame(dados_iniciais)
-        df_u.to_excel(ARQUIVO_USUARIOS, index=False)
-        return df_u
-
-def salvar_usuarios(df_u):
-    df_u = df_u.astype(str)
-    df_u.to_excel(ARQUIVO_USUARIOS, index=False)
 
 def gerar_pdf_simples(titulo, colunas, dados):
     from reportlab.lib.pagesizes import letter, landscape
@@ -370,127 +468,6 @@ def verificar_senha():
     return True
 
 if verificar_senha():
-    def carregar_dados():
-        if os.path.exists(ARQUIVO_DADOS):
-            df = pd.read_excel(ARQUIVO_DADOS)
-            df.columns = df.columns.str.strip()
-            
-            col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
-            col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
-            
-            df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
-            
-            if col_nasc in df.columns:
-                df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
-                df['dt_nasc'] = df['dt_nasc_dt'].dt.date
-            else:
-                df['dt_nasc_dt'] = pd.NaT
-                df['dt_nasc'] = None
-            
-            if 'Vaga' in df.columns:
-                df['Vaga'] = df['Vaga'].astype(str).str.replace('.0', '', regex=False)
-            if 'Matricula' in df.columns:
-                df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
-            
-            if 'Ultimas_Ferias' not in df.columns:
-                df['Ultimas_Ferias'] = None
-            else:
-                df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str)
-                df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
-                
-            if 'Decisao_Experiencia' not in df.columns:
-                df['Decisao_Experiencia'] = None
-                
-            if 'Status' not in df.columns:
-                df['Status'] = 'Ativo'
-            else:
-                df['Status'] = df['Status'].fillna('Ativo')
-
-            return df
-        else:
-            st.error(f"Arquivo '{ARQUIVO_DADOS}' não encontrado na pasta atual!")
-            return pd.DataFrame()
-
-    def carregar_faltas():
-        cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
-        if os.path.exists(ARQUIVO_FALTAS):
-            df_f = pd.read_excel(ARQUIVO_FALTAS)
-            df_f.columns = df_f.columns.str.strip()
-            
-            for col in cols_padrao:
-                if col not in df_f.columns and col != 'dt_falta':
-                    df_f[col] = ""
-                    
-            if 'Data' in df_f.columns and not df_f.empty:
-                df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
-            else:
-                df_f['dt_falta'] = None
-            return df_f
-        else:
-            return pd.DataFrame(columns=cols_padrao)
-
-    def salvar_dados(df_salvar):
-        cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
-        df_salvar[cols_salvar].to_excel(ARQUIVO_DADOS, index=False)
-
-    def salvar_faltas(df_f):
-        cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
-        df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
-
-    @st.dialog("📋 Lista Detalhada e Exportação")
-    def exibir_modal_detalhes(titulo, df_detalhes):
-        st.subheader(titulo)
-        if df_detalhes.empty:
-            st.info("Nenhum colaborador nesta situação.")
-        else:
-            st.dataframe(df_detalhes, use_container_width=True)
-            st.markdown("---")
-            st.markdown("##### 📥 Exportar Esta Lista")
-            c_d1, c_d2 = st.columns(2)
-            with c_d1:
-                st.download_button(
-                    label="📥 Baixar em Excel (.xlsx)",
-                    data=converter_df_para_excel(df_detalhes),
-                    file_name=f"{titulo.lower().replace(' ', '_')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"excel_modal_{titulo}"
-                )
-            with c_d2:
-                pdf_b = gerar_pdf_simples(titulo, list(df_detalhes.columns), df_detalhes.values.tolist())
-                st.download_button(
-                    label="🖨️ Baixar PDF para Impressão",
-                    data=pdf_b,
-                    file_name=f"{titulo.lower().replace(' ', '_')}.pdf",
-                    mime="application/pdf",
-                    key=f"pdf_modal_{titulo}"
-                )
-
-    @st.dialog("🔑 Alterar Minha Senha")
-    def modal_alterar_senha():
-        st.subheader("Alterar Minha Senha")
-        df_u = carregar_usuarios()
-        usr_logado = st.session_state.get("usuario_login")
-        
-        s_atual = st.text_input("Senha Atual:", type="password")
-        s_nova = st.text_input("Nova Senha:", type="password")
-        s_conf = st.text_input("Confirme a Nova Senha:", type="password")
-        
-        if st.button("💾 Confirmar Alteração"):
-            mask = (df_u['Usuario'].astype(str).str.lower() == str(usr_logado).lower())
-            if mask.any():
-                senha_correta = df_u.loc[mask, 'Senha'].values[0]
-                if str(s_atual) != str(senha_correta) and str(s_atual) not in ["030711", "123"]:
-                    st.error("❌ Senha atual incorreta!")
-                elif not s_nova:
-                    st.warning("⚠️ Digite a nova senha.")
-                elif s_nova != s_conf:
-                    st.error("❌ A nova senha e a confirmação não conferem.")
-                else:
-                    df_u.loc[mask, 'Senha'] = str(s_nova)
-                    salvar_usuarios(df_u)
-                    st.toast("✅ Senha alterada com sucesso!", icon="🎉")
-                    st.rerun()
-
     df = carregar_dados()
     df_faltas = carregar_faltas()
     hoje = date.today()
@@ -838,7 +815,9 @@ if verificar_senha():
                         
                         for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
-                            val_pres_def = True
+                            
+                            # ALTERADO: Inicia com as caixas desmarcadas (False) por padrão
+                            val_pres_def = False
                             val_folga_def = False
                             
                             if chamada_ja_feita and 'Tipo' in registros_data.columns:
@@ -915,7 +894,7 @@ if verificar_senha():
 
                             df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
                             salvar_faltas(df_faltas)
-                            st.toast("✅ Chamada gravada e bloqueada contra alterações!", icon="🎉")
+                            st.toast("✅ Chamada gravada na nuvem e bloqueada contra alterações!", icon="🎉")
                             
                             st.session_state["desbloquear_chamada"] = False
                             st.rerun()
@@ -1285,6 +1264,6 @@ if verificar_senha():
             arquivo_upload = st.file_uploader("Arraste ou selecione o arquivo .xlsx", type=["xlsx"])
             if arquivo_upload is not None and st.button("Confirmar e Substituir Base"):
                 df_novo_up = pd.read_excel(arquivo_upload)
-                df_novo_up.to_excel(ARQUIVO_DADOS, index=False)
-                st.toast("Nova base importada com sucesso!", icon="📥")
+                salvar_dados(df_novo_up)
+                st.toast("Nova base importada com sucesso para a nuvem!", icon="📥")
                 st.rerun()
