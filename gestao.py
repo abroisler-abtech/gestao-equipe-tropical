@@ -36,7 +36,7 @@ def exibir_modal_detalhes(titulo, df_exibir):
     else:
         st.dataframe(df_exibir, use_container_width=True)
 
-# --- ESTILOS CSS PERSONALIZADOS (CORRIGIDO PARA MANTER A BARRA LATERAL) ---
+# --- ESTILOS CSS PERSONALIZADOS ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -47,7 +47,7 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
-        /* REMOVE APENAS O RODAPÉ PADRÃO E A MARCA D'ÁGUA */
+        /* REMOVE O RODAPÉ PADRÃO E A MARCA D'ÁGUA */
         footer {{visibility: hidden !important; display: none !important;}}
         
         /* GARANTE A VISIBILIDADE DA BARRA LATERAL E NAVEGAÇÃO */
@@ -131,7 +131,6 @@ def obter_cliente_gspread():
         st.session_state.gspread_client = gspread.public_client()
     return st.session_state.gspread_client
 
-@st.cache_data(ttl=1)
 def carregar_dados():
     try:
         url_sheets = st.secrets.get("GSHEETS_URL", "")
@@ -176,7 +175,6 @@ def carregar_dados():
     except Exception:
         return pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
 
-@st.cache_data(ttl=1)
 def carregar_faltas():
     cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
     try:
@@ -244,12 +242,12 @@ def salvar_dados(df_salvar):
             gc = obter_cliente_gspread()
             sh = gc.open_by_url(url_sheets)
             ws = sh.worksheet("equipe")
-            ws.clear()
-            ws.update([df_export.columns.values.tolist()] + df_export.fillna("").astype(str).values.tolist())
+            valores = [df_export.columns.values.tolist()] + df_export.fillna("").astype(str).values.tolist()
+            ws.resize(rows=len(valores), cols=len(df_export.columns))
+            ws.update(range_name="A1", values=valores)
         except Exception as e:
             st.error(f"Erro ao salvar equipe no Sheets: {e}")
     df_export.to_excel("equipe.xlsx", index=False)
-    st.cache_data.clear()
 
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
@@ -261,12 +259,12 @@ def salvar_faltas(df_f):
             gc = obter_cliente_gspread()
             sh = gc.open_by_url(url_sheets)
             ws = sh.worksheet("faltas")
-            ws.clear()
-            ws.update([df_export.columns.values.tolist()] + df_export.fillna("").astype(str).values.tolist())
+            valores = [df_export.columns.values.tolist()] + df_export.fillna("").astype(str).values.tolist()
+            ws.resize(rows=len(valores), cols=len(df_export.columns))
+            ws.update(range_name="A1", values=valores)
         except Exception as e:
             st.error(f"Erro ao salvar faltas no Sheets: {e}")
     df_export.to_excel("faltas.xlsx", index=False)
-    st.cache_data.clear()
 
 def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
@@ -276,8 +274,9 @@ def salvar_usuarios(df_u):
             gc = obter_cliente_gspread()
             sh = gc.open_by_url(url_sheets)
             ws = sh.worksheet("usuarios")
-            ws.clear()
-            ws.update([df_u.columns.values.tolist()] + df_u.fillna("").values.tolist())
+            valores = [df_u.columns.values.tolist()] + df_u.fillna("").values.tolist()
+            ws.resize(rows=len(valores), cols=len(df_u.columns))
+            ws.update(range_name="A1", values=valores)
         except Exception as e:
             st.error(f"Erro ao salvar usuários no Sheets: {e}")
     df_u.to_excel("usuarios.xlsx", index=False)
@@ -580,6 +579,7 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'].astype(str).str.contains('férias|ferias', case=False, na=False)]
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('atestado|afastado|inss|licença|licenca', case=False, na=False)]
             
+            # FILTRAGEM ESTRITA DA CHAMADA APENAS PARA A DATA DE HOJE
             if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
                 chamada_hoje_existente = df_faltas_filtrado[
                     (df_faltas_filtrado['Data'] == hoje_str) & 
