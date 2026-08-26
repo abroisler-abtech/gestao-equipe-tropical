@@ -82,7 +82,7 @@ st.markdown(
             border-color: #FF6B00 !important;
         }}
         [data-testid="stMetricValue"] {{
-            color: #FF6B00 !important;
+            color: #FFFFFF !important;
             font-size: 2rem !important;
             font-weight: bold !important;
         }}
@@ -756,7 +756,7 @@ if verificar_senha():
 
         elif menu == "🤖 Assistente de IA do Gestor":
             st.subheader("🤖 Assistente de Inteligência Artificial — Tropical DP")
-            st.caption("Pergunte qualquer dúvida sobre a equipe, relatórios, absenteísmo ou férias!")
+            st.caption("Pergunte qualquer dúvida sobre a equipe, relatórios, absenteísmo, experiência ou férias!")
 
             gemini_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
@@ -770,7 +770,7 @@ if verificar_senha():
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-                prompt_user = st.chat_input("Ex: Quantas faltas tivemos hoje?")
+                prompt_user = st.chat_input("Ex: Quantos colaboradores estão em experiência ou agendados para férias?")
 
                 if prompt_user:
                     st.session_state.historico_chat.append({"role": "user", "content": prompt_user})
@@ -778,37 +778,67 @@ if verificar_senha():
                         st.markdown(prompt_user)
 
                     with st.chat_message("assistant"):
-                        with st.spinner("Analisando dados da equipe..."):
+                        with st.spinner("Analisando toda a base de dados da equipe..."):
                             try:
                                 client = genai.Client(api_key=gemini_key)
                                 
-                                resumo_equipe = df_filtrado[['Funcionário', 'Setor', 'Cargo', 'Status']].to_string(index=False)
+                                # MONTAGEM DO RESUMO COMPLETO PARA A IA
+                                df_ia = df_filtrado.copy()
+                                df_ia['Admissao_Txt'] = df_ia['dt_adm'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "N/A")
                                 
+                                # 1. CADASTRO COMPLETO
+                                cols_cad_ia = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissao_Txt'] if c in df_ia.columns]
+                                resumo_equipe = df_ia[cols_cad_ia].to_string(index=False)
+                                
+                                # 2. EXPERIÊNCIA
+                                if not df_apenas_exp.empty:
+                                    df_exp_ia = df_apenas_exp.copy()
+                                    df_exp_ia['Venc_45d'] = df_exp_ia['exp_45'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "N/A")
+                                    df_exp_ia['Venc_90d'] = df_exp_ia['exp_90'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "N/A")
+                                    resumo_experiencia = df_exp_ia[['Funcionário', 'Setor', 'Admissão', 'Venc_45d', 'dias_para_45', 'Venc_90d', 'dias_para_90']].to_string(index=False)
+                                else:
+                                    resumo_experiencia = "Nenhum colaborador atualmente no período de experiência de 90 dias."
+
+                                # 3. ESCALA E HISTÓRICO DE FÉRIA
+                                if 'Ultimas_Ferias' in df_ia.columns:
+                                    cols_f_ia = [c for c in ['Funcionário', 'Setor', 'Cargo', 'Admissao_Txt', 'Ultimas_Ferias', 'Status'] if c in df_ia.columns]
+                                    resumo_escala_ferias = df_ia[cols_f_ia].to_string(index=False)
+                                else:
+                                    resumo_escala_ferias = "Sem registro de histórico ou agendamento de férias na base."
+
+                                # 4. OCORRÊNCIAS E FALTAS
                                 if not df_faltas_filtrado.empty and 'Data' in df_faltas_filtrado.columns:
                                     faltas_hoje = df_faltas_filtrado[df_faltas_filtrado['Data'] == hoje_str].copy()
                                     if not faltas_hoje.empty and 'Funcionário' in faltas_hoje.columns:
                                         faltas_valida_hoje = faltas_hoje[~faltas_hoje['Funcionário'].isin(colabs_inativos_geral)]
-                                        resumo_faltas_hoje = faltas_valida_hoje[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].to_string(index=False) if not faltas_valida_hoje.empty else "Nenhuma falta registrada hoje para colaboradores ativos."
+                                        resumo_faltas_hoje = faltas_valida_hoje[['Funcionário', 'Setor', 'Data', 'Tipo', 'Motivo']].to_string(index=False) if not faltas_valida_hoje.empty else "Nenhuma falta registrada hoje."
                                     else:
-                                        resumo_faltas_hoje = "Nenhuma falta registrada hoje para colaboradores ativos."
+                                        resumo_faltas_hoje = "Nenhuma falta registrada hoje."
                                 else:
                                     resumo_faltas_hoje = "Sem registros de falta."
 
                                 contexto_prompt = f"""
                                 Você é o Assistente Virtual de DP e Gestão da Tropical Distribuidora.
-                                Responda à dúvida do gestor de forma direta, cortês e precisa.
+                                Responda à dúvida do gestor com precisão baseando-se estritamente nos dados fornecidos abaixo.
 
                                 REGRAS IMPORTANTES DE ANÁLISE:
-                                1. Desconsidere qualquer falta registrada para colaboradores cujo Status atual na empresa seja 'Férias', 'Afastado' ou 'INSS'.
-                                2. Se um colaborador estiver marcado como 'Férias' no cadastro de equipe, ele NÃO deve ser contado como falta.
+                                1. Para dúvidas de "Experiência": consulte a tabela QUADRO DE CONTRATOS DE EXPERIÊNCIA.
+                                2. Para dúvidas de "Férias e Programação": consulte a tabela ESCALA E HISTÓRICO DE FÉRIAS, bem como o Status atual ('Férias').
+                                3. Para dúvidas de "Faltas/Ausências": desconsidere colaboradores com Status 'Férias', 'Afastado' ou 'INSS'.
 
-                                DATA ATUAL: {hoje_str}
+                                DATA ATUAL DE HOJE: {hoje_str}
                                 SETOR SELECIONADO: {setor_selecionado}
 
-                                CADASTRO ATUAL DA EQUIPE (STATUS VIGENTE):
+                                1. CADASTRO DE EQUIPE E ADMISSÕES:
                                 {resumo_equipe}
 
-                                REGISTROS DE OCORRÊNCIAS / FALTAS VÁLIDAS DE HOJE:
+                                2. QUADRO DE CONTRATOS DE EXPERIÊNCIA (45/90 DIAS):
+                                {resumo_experiencia}
+
+                                3. ESCALA E HISTÓRICO DE FÉRIAS:
+                                {resumo_escala_ferias}
+
+                                4. REGISTROS DE FALTAS/OCORRÊNCIAS DE HOJE:
                                 {resumo_faltas_hoje}
 
                                 PERGUNTA DO GESTOR: {prompt_user}
