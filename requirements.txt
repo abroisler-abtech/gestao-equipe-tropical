@@ -4,6 +4,4 @@ plotly
 openpyxl
 reportlab
 google-genai
-st-filesconnection
-gspread
 streamlit-gsheets
