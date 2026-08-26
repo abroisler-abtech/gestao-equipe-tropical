@@ -117,13 +117,13 @@ TODOS_MODULOS = [
 
 TERMOS_LIDERANCA = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider', 'diretor']
 
-# --- CONEXÃO COM GOOGLE SHEETS ---
+# --- CONEXÃO COM GOOGLE SHEETS VIA GSPREAD ---
 def obter_cliente_gspread():
     if "gspread_client" not in st.session_state:
         st.session_state.gspread_client = gspread.public_client()
     return st.session_state.gspread_client
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2)
 def carregar_dados():
     try:
         url_sheets = st.secrets.get("GSHEETS_URL", "")
@@ -168,7 +168,7 @@ def carregar_dados():
     except Exception:
         return pd.read_excel("equipe.xlsx") if os.path.exists("equipe.xlsx") else pd.DataFrame()
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2)
 def carregar_faltas():
     cols_padrao = ["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"]
     try:
@@ -618,6 +618,9 @@ if verificar_senha():
             if chamada_realizada and 'Tipo' in chamada_hoje_existente.columns:
                 df_folgas_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] == 'Folga Concedida']
                 df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'].isin(['Falta Injustificada', 'Ausência / A Confirmar', 'Atestado Médico'])]
+                
+                # REFILTRAGEM EM TEMPO REAL: EXPURGA FÉRIAS E AFASTADOS
+                df_ausencias_hoje = df_ausencias_hoje[~df_ausencias_hoje['Funcionário'].isin(colabs_inativos_geral)]
                 
                 qtd_folgas_hoje = len(df_folgas_hoje)
                 qtd_faltantes_hoje = len(df_ausencias_hoje)
