@@ -230,36 +230,21 @@ def salvar_dados(df_salvar):
     cols_salvar = [c for c in df_salvar.columns if c not in cols_ignorar]
     df_export = df_salvar[cols_salvar].fillna("").astype(str)
     
-    try:
-        conn = obter_conexao_sheets()
-        conn.update(worksheet="equipe", data=df_export)
-        st.success("✅ Gravado com sucesso na planilha do Google Drive!")
-    except Exception as e:
-        st.error(f"Erro ao salvar equipe no Sheets: {e}")
     df_export.to_excel("equipe.xlsx", index=False)
+    st.success("✅ Cadastro atualizado com sucesso!")
 
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
     df_f = df_f.drop_duplicates(subset=['Funcionário', 'Data'], keep='last')
     df_export = df_f[cols_salvar].fillna("").astype(str)
     
-    try:
-        conn = obter_conexao_sheets()
-        conn.update(worksheet="faltas", data=df_export)
-        st.success("✅ Chamada/Faltas gravadas com sucesso no Google Drive!")
-    except Exception as e:
-        st.error(f"Erro ao salvar faltas no Sheets: {e}")
     df_export.to_excel("faltas.xlsx", index=False)
+    st.success("✅ Chamada/Faltas gravadas com sucesso!")
 
 def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
-    try:
-        conn = obter_conexao_sheets()
-        conn.update(worksheet="usuarios", data=df_u)
-        st.success("✅ Usuários atualizados no Google Drive!")
-    except Exception as e:
-        st.error(f"Erro ao salvar usuários no Sheets: {e}")
     df_u.to_excel("usuarios.xlsx", index=False)
+    st.success("✅ Usuários atualizados com sucesso!")
 
 def eh_lideranca(cargo_str):
     if not cargo_str or pd.isna(cargo_str):
