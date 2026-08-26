@@ -7,6 +7,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from supabase import create_client, Client
+from google import genai
+from google.genai import types
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -17,6 +19,7 @@ st.set_page_config(
 
 # --- CONFIGURAÇÃO DE SEGURANÇA E ACESSO ---
 SENHA_MESTRE = st.secrets.get("SENHA_ACESSO", "030711")
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
 TODOS_MODULOS = [
     "Dashboard & Alertas",
@@ -276,9 +279,15 @@ if escolha == "Dashboard & Alertas":
     st.markdown("Visão geral dos colaboradores, contratos de experiência e aniversariantes.")
     
     total_colab = len(df_equipe)
-    st.metric("Total de Colaboradores", total_colab)
+    ativos = len(df_equipe[df_equipe['Status'].str.lower() == 'ativo']) if 'Status' in df_equipe.columns else total_colab
     
-    st.subheader("📋 Lista de Colaboradores Cadastrados")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total de Colaboradores", total_colab)
+    col2.metric("Colaboradores Ativos", ativos)
+    col3.metric("Ocorrências Registradas", len(df_faltas))
+    
+    st.divider()
+    st.subheader("📋 Lista Completa de Colaboradores")
     st.dataframe(df_equipe, use_container_width=True)
 
 # --- MÓDULO 2: CHAMADA & FALTAS DO DIA ---
@@ -315,6 +324,13 @@ elif escolha == "Chamada & Faltas do Dia":
             df_faltas = pd.concat([df_faltas, nova_falta], ignore_index=True)
             salvar_faltas(df_faltas)
             st.success("Ocorrência registrada e salva na nuvem com sucesso!")
+            
+        st.divider()
+        st.subheader("Histórico de Faltas e Ocorrências")
+        if not df_faltas.empty:
+            st.dataframe(df_faltas, use_container_width=True)
+        else:
+            st.info("Nenhuma ocorrência registrada.")
 
 # --- MÓDULO 3: FICHA INDIVIDUAL ---
 elif escolha == "👤 Ficha Individual do Colaborador":
@@ -326,25 +342,65 @@ elif escolha == "👤 Ficha Individual do Colaborador":
         colab_sel = st.selectbox("Selecione o Colaborador", df_equipe['Funcionário'].tolist(), key="select_ficha")
         dados_colab = df_equipe[df_equipe['Funcionário'] == colab_sel].iloc[0]
         
-        st.write(f"**Matrícula:** {dados_colab.get('Matricula', '')}")
-        st.write(f"**Setor:** {dados_colab.get('Setor', '')}")
-        st.write(f"**Cargo:** {dados_colab.get('Cargo', '')}")
-        st.write(f"**Status:** {dados_colab.get('Status', '')}")
+        c1, c2, c3 = st.columns(3)
+        c1.write(f"**Matrícula:** {dados_colab.get('Matricula', '')}")
+        c1.write(f"**Funcionário:** {dados_colab.get('Funcionário', '')}")
+        c2.write(f"**Setor:** {dados_colab.get('Setor', '')}")
+        c2.write(f"**Cargo:** {dados_colab.get('Cargo', '')}")
+        c3.write(f"**Status:** {dados_colab.get('Status', '')}")
+        c3.write(f"**Admissão:** {dados_colab.get('Admissão', '')}")
+        
+        st.divider()
+        st.subheader("📝 Edição de Dados Cadastrais")
+        with st.form("form_edicao_colab"):
+            novo_cargo = st.text_input("Cargo", value=str(dados_colab.get('Cargo', '')))
+            novo_setor = st.text_input("Setor", value=str(dados_colab.get('Setor', '')))
+            novo_status = st.selectbox("Status", ["Ativo", "Afastado", "Demitido"], index=0 if dados_colab.get('Status', 'Ativo') == 'Ativo' else 1)
+            
+            btn_salvar_colab = st.form_submit_button("Salvar Alterações do Colaborador")
+            if btn_salvar_colab:
+                idx = df_equipe[df_equipe['Funcionário'] == colab_sel].index[0]
+                df_equipe.at[idx, 'Cargo'] = novo_cargo
+                df_equipe.at[idx, 'Setor'] = novo_setor
+                df_equipe.at[idx, 'Status'] = novo_status
+                salvar_dados(df_equipe)
+                st.success("Dados do colaborador atualizados e salvos na nuvem!")
+                st.rerun()
 
 # --- MÓDULO 4: ESCALA INTELIGENTE DE FÉRIAS ---
 elif escolha == "📅 Escala Inteligente de Férias":
     st.title("📅 Escala Inteligente de Férias")
-    st.info("Planejamento e controle de vencimentos e programação de férias da equipe.")
+    st.info("Planejamento, acompanhamento de períodos aquisitivos e programação de férias da equipe.")
+    
     if not df_equipe.empty:
-        st.dataframe(df_equipe[['Matricula', 'Funcionário', 'Setor', 'Admissão', 'Ultimas_Ferias']], use_container_width=True)
+        st.dataframe(df_equipe[['Matricula', 'Funcionário', 'Setor', 'Admissão', 'Ultimas_Ferias', 'Status']], use_container_width=True)
+    else:
+        st.warning("Nenhum dado de equipe carregado.")
 
 # --- MÓDULO 5: ASSISTENTE IA DE DP ---
 elif escolha == "🤖 Assistente IA de DP":
     st.title("🤖 Assistente IA de DP")
-    st.write("Tire dúvidas sobre legislação trabalhista, rotinas de DP e análises de equipe.")
-    pergunta_ia = st.text_input("Digite sua dúvida para a IA:")
-    if st.button("Consultar IA"):
-        st.info("O assistente de IA está conectado para auxiliar nas suas demandas de gestão.")
+    st.write("Tire dúvidas sobre legislação trabalhista, rotinas de Departamento Pessoal e suporte operacional.")
+    
+    pergunta_usuario = st.text_area("Digite sua dúvida ou comando para a Inteligência Artificial:")
+    
+    if st.button("Perguntar à IA", type="primary"):
+        if pergunta_usuario.strip():
+            if not GEMINI_API_KEY:
+                st.warning("A chave da API do Gemini (GEMINI_API_KEY) não foi configurada nos Secrets.")
+            else:
+                try:
+                    client = genai.Client(api_key=GEMINI_API_KEY)
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=f"Você é um especialista sênior em Departamento Pessoal e CLT no Brasil. Responda com precisão, clareza e baseada na legislação trabalhista brasileira à seguinte dúvida:\n\n{pergunta_usuario}"
+                    )
+                    st.success("Resposta da IA:")
+                    st.write(response.text)
+                except Exception as e:
+                    st.error(f"Erro ao consultar a IA: {e}")
+        else:
+            st.warning("Por favor, digite uma pergunta.")
 
 # --- MÓDULO 6: GERENCIAMENTO DE USUÁRIOS ---
 elif escolha == "⚙️ Gerenciamento de Usuários":
