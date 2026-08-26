@@ -254,8 +254,12 @@ with st.sidebar:
     st.divider()
     st.header("📌 Navegação")
     
-    modulos_permitidos = st.session_state.modulos_usuario
-    menu_opcoes = [m for m in TODOS_MODULOS if m in modulos_permitidos]
+    # Se for Administrador Mestre ou perfil Admin, garante acesso total aos módulos
+    if st.session_state.perfil_atual == "Admin":
+        menu_opcoes = TODOS_MODULOS
+    else:
+        modulos_permitidos = st.session_state.modulos_usuario
+        menu_opcoes = [m for m in TODOS_MODULOS if m in modulos_permitidos]
     
     if not menu_opcoes:
         menu_opcoes = ["Dashboard & Alertas"]
@@ -334,7 +338,7 @@ elif escolha == "📝 Controle de Férias e Experiência":
     if not df_equipe.empty:
         st.dataframe(df_equipe[['Matricula', 'Funcionário', 'Setor', 'Admissão', 'Ultimas_Ferias']], use_container_width=True)
 
-# --- MÓDULO 5: GERENCIAMENTO DE USUÁRIOS ---
+# --- MÓDULO 5: GERENCIAMENTO DE USUÁRIOS (EDITÁVEL) ---
 elif escolha == "⚙️ Gerenciamento de Usuários":
     st.title("⚙️ Gerenciamento de Usuários do Sistema")
     
@@ -342,16 +346,34 @@ elif escolha == "⚙️ Gerenciamento de Usuários":
         st.error("Acesso restrito a administradores.")
     else:
         df_u_ger = carregar_usuarios()
-        st.subheader("Usuários Cadastrados")
-        st.dataframe(df_u_ger, use_container_width=True)
         
-        st.subheader("Adicionar Novo Usuário")
-        novo_nome = st.text_input("Nome Completo")
-        novo_user = st.text_input("Login de Usuário")
-        novo_email = st.text_input("E-mail")
-        nova_senha = st.text_input("Senha", type="password")
-        novo_perfil = st.selectbox("Perfil", ["Admin", "Gestor", "Visualizador"])
+        st.subheader("✏️ Editar ou Remover Usuários Existentes")
+        if not df_u_ger.empty:
+            edited_df = st.data_editor(
+                df_u_ger, 
+                use_container_width=True, 
+                num_rows="dynamic",
+                key="editor_usuarios"
+            )
+            
+            if st.button("💾 Salvar Alterações nos Usuários", type="primary"):
+                salvar_usuarios(edited_df)
+                st.success("Usuários atualizados com sucesso na nuvem!")
+                st.rerun()
+        else:
+            st.info("Nenhum usuário cadastrado.")
         
+        st.divider()
+        st.subheader("➕ Adicionar Novo Usuário")
+        col1, col2 = st.columns(2)
+        with col1:
+            novo_nome = st.text_input("Nome Completo")
+            novo_user = st.text_input("Login de Usuário")
+            novo_email = st.text_input("E-mail")
+        with col2:
+            nova_senha = st.text_input("Senha", type="password")
+            novo_perfil = st.selectbox("Perfil", ["Admin", "Gestor", "Visualizador"])
+            
         if st.button("Cadastrar Novo Usuário"):
             if novo_user and nova_senha:
                 novo_registro = pd.DataFrame([{
