@@ -214,11 +214,15 @@ if not st.session_state.logado:
     
     with tab_login_sis:
         df_u_login = carregar_usuarios()
-        usuario_input = st.text_input("Usuário", key="input_user_login")
+        usuario_input = st.text_input("Usuário ou E-mail", key="input_user_login")
         senha_input = st.text_input("Senha", type="password", key="input_pass_login")
         
         if st.button("Entrar no Sistema", type="primary"):
-            user_encontrado = df_u_login[df_u_login['Usuario'].astype(str).str.lower() == usuario_input.strip().lower()]
+            # Correção para aceitar tanto o login de usuário quanto o e-mail cadastrado
+            user_encontrado = df_u_login[
+                (df_u_login['Usuario'].astype(str).str.lower() == usuario_input.strip().lower()) | 
+                (df_u_login['Email'].astype(str).str.lower() == usuario_input.strip().lower())
+            ]
             if not user_encontrado.empty:
                 senha_cadastrada = str(user_encontrado.iloc[0]['Senha'])
                 if senha_input == senha_cadastrada:
@@ -232,7 +236,7 @@ if not st.session_state.logado:
                 else:
                     st.error("Senha incorreta.")
             else:
-                st.error("Usuário não encontrado.")
+                st.error("Usuário ou e-mail não encontrado.")
                 
     with tab_login_mestre:
         senha_mestre_input = st.text_input("Digite a Senha Mestre", type="password", key="input_senha_mestre")
@@ -276,18 +280,35 @@ with st.sidebar:
 df_equipe = carregar_dados()
 df_faltas = carregar_faltas()
 
-# --- MÓDULO 1: DASHBOARD & ALERTAS ---
+# --- MÓDULO 1: DASHBOARD & ALERTAS (COM OS BALÕES LARS, VERDES E VERMELHOS) ---
 if escolha == "Dashboard & Alertas":
     st.title("📊 Dashboard & Alertas de DP")
-    st.markdown("Visão geral dos colaboradores, contratos de experiência e aniversariantes.")
+    st.markdown("Visão geral dos colaboradores, contratos de experiência e alertas críticos.")
     
     total_colab = len(df_equipe)
     ativos = len(df_equipe[df_equipe['Status'].str.lower() == 'ativo']) if 'Status' in df_equipe.columns else total_colab
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Colaboradores", total_colab)
-    col2.metric("Colaboradores Ativos", ativos)
-    col3.metric("Ocorrências Registradas", len(df_faltas))
+    # Cálculo de contratos de experiência próximos para os balões de alerta
+    hoje = datetime.date.today()
+    alerta_45 = 0
+    alerta_90 = 0
+    
+    for _, row in df_equipe.iterrows():
+        dt_adm = row.get('dt_adm')
+        if pd.notnull(dt_adm):
+            d_45 = ((dt_adm + datetime.timedelta(days=44)) - hoje).days
+            d_90 = ((dt_adm + datetime.timedelta(days=89)) - hoje).days
+            if 0 <= d_45 <= 10:
+                alerta_45 += 1
+            if 0 <= d_90 <= 15:
+                alerta_90 += 1
+
+    # Exibição dos balões métricos coloridos
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Colaboradores", total_colab)
+    col2.metric("Ativos", ativos)
+    col3.metric("⚠️ Venc. Experiência (45d)", alerta_45, delta_color="inverse" if alerta_45 > 0 else "off")
+    col4.metric("🚨 Venc. Experiência (90d)", alerta_90, delta_color="inverse" if alerta_90 > 0 else "off")
     
     st.divider()
     st.subheader("📋 Lista Completa de Colaboradores")
