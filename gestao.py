@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — com balões de métricas estilizados e alertas de liberação de vagas.
+"""Painel de Gestão & DP — Versão Completa Consolidada.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -53,7 +53,7 @@ COLUNAS: dict[str, list[str]] = {
         "registro_id", "matricula", "funcionario", "setor", "data", "tipo", "dias",
         "cid", "motivo", "origem",
     ],
-    "epis": ["entrega_id", "matricula", "funcionario", "setor", "data", "epi", "detalhe_tamanho", "responsavel"],
+    "epis": ["entrega_id", "matricula", "funcionario", "setor", "data", "epi", "detalhe_tamanho", "responsavel", "tipo_registro"],
     "historico": ["evento_id", "matricula", "funcionario", "data", "tipo_evento", "descricao", "autor"],
 }
 
@@ -74,7 +74,7 @@ TODOS_MODULOS = (
     "Solicitação & Entrega de EPI",
     "Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
-    "Escala de Férias",
+    "Escala Inteligente de Férias",
     "Colaboradores em Férias",
     "Indicadores de Frequência & Absenteísmo",
     "Aniversariantes do Mês",
@@ -106,6 +106,7 @@ ALIAS_COLUNAS = {
         "entrega_id": "entrega_id", "matricula": "matricula", "matrícula": "matricula",
         "funcionario": "funcionario", "funcionário": "funcionario", "setor": "setor", "data": "data",
         "epi": "epi", "detalhe_tamanho": "detalhe_tamanho", "responsavel": "responsavel", "responsável": "responsavel",
+        "tipo_registro": "tipo_registro",
     },
     "historico": {
         "evento_id": "evento_id", "matricula": "matricula", "matrícula": "matricula",
@@ -146,9 +147,9 @@ def para_data(valor: object) -> Optional[date]:
         return valor.date()
     if isinstance(valor, date):
         return valor
-    convertido = pd.to_datetime(str(valor), dayfirst=False, errors="coerce")
+    convertido = pd.to_datetime(str(valor), dayfirst=True, errors="coerce")
     if pd.isna(convertido):
-        convertido = pd.to_datetime(str(valor), dayfirst=True, errors="coerce")
+        convertido = pd.to_datetime(str(valor), dayfirst=False, errors="coerce")
     return None if pd.isna(convertido) else convertido.date()
 
 
@@ -192,6 +193,8 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
                 df[coluna] = "Ativo"
             elif coluna in {"perfil"}:
                 df[coluna] = "Admin"
+            elif coluna in {"tipo_registro"}:
+                df[coluna] = "Entrega"
             else:
                 df[coluna] = ""
 
@@ -219,6 +222,8 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
         if entidade == "faltas":
             df["dias"] = pd.to_numeric(df["dias"], errors="coerce").fillna(0).astype(int)
             df["origem"] = df["origem"].replace("", "Avulso")
+        elif entidade == "epis":
+            df["tipo_registro"] = df["tipo_registro"].replace("", "Entrega")
 
     return df[COLUNAS[entidade]].copy(), False
 
@@ -396,7 +401,7 @@ def tabela_exibicao(df: pd.DataFrame, campos: list[str]) -> pd.DataFrame:
         "usuario": "Usuário", "perfil": "Perfil", "admissao": "Admissão", "nascimento": "Nascimento",
         "status": "Status", "ultimas_ferias": "Últimas férias", "data_retorno_ferias": "Retorno das férias",
         "data": "Data", "tipo": "Tipo", "dias": "Dias", "cid": "CID", "motivo": "Motivo", "origem": "Origem",
-        "epi": "EPI", "detalhe_tamanho": "Detalhe/Tamanho", "responsavel": "Responsável",
+        "epi": "EPI", "detalhe_tamanho": "Detalhe/Tamanho", "responsavel": "Responsável", "tipo_registro": "Tipo de Registro",
         "tipo_evento": "Tipo de evento", "descricao": "Descrição", "autor": "Autor",
         "data_desligamento": "Data de Desligamento",
     }
@@ -489,14 +494,12 @@ def tela_dashboard(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str
 
     st.subheader("Painel geral de indicadores")
     
-    # Exibição com balões estilizados (fundo escuro, borda e números em laranja vivo, texto branco)
     c1, c2, c3, c4, c5 = st.columns(5)
-    
     cards = [
         ("Total no quadro", len(base)),
         ("Ativos", len(ativos)),
         ("Em férias", len(em_ferias)),
-        ("Afastados", len(afastados)),
+        ("Afastados / INSS", len(afastados)),
         ("Ausências hoje", len(ausencias_hoje))
     ]
     
@@ -544,9 +547,13 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
                 for _, pessoa in operacionais.iterrows():
                     col_nome, col_status = st.columns([2.2, 1.35])
                     col_nome.markdown(f"**{pessoa['funcionario']}**  \n`{pessoa['matricula']}`")
+                    
+                    estado_atual = estados.get(pessoa["matricula"], "Presente")
+                    idx_opcao = ("Presente", "Folga", "Ausente").index(estado_atual) if estado_atual in ("Presente", "Folga", "Ausente") else 0
+                    
                     novo_estado[pessoa["matricula"]] = col_status.radio(
                         "Status", ("Presente", "Folga", "Ausente"),
-                        index=("Presente", "Folga", "Ausente").index(estados.get(pessoa["matricula"], "Presente")),
+                        index=idx_opcao,
                         horizontal=True, label_visibility="collapsed",
                         key=f"chamada_{data_chamada.isoformat()}_{setor}_{pessoa['matricula']}",
                     )
@@ -603,32 +610,68 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
 
 
 def tela_epi(colaboradores: pd.DataFrame, epis: pd.DataFrame, setor: str, autor: str) -> None:
-    st.subheader("Solicitação e entrega de EPI")
+    st.subheader("Solicitação & Entrega de EPI")
+    aba_entrega, aba_solicitacao = st.tabs(["Registro de Entrega", "Solicitação ao RH"])
     base = filtrar_setor(colaboradores, setor)
     opcoes, mapa = opcoes_colaboradores(base, apenas_ativos=True)
-    if not opcoes:
-        st.info("Não há colaboradores ativos para o filtro atual.")
-        return
-    with st.form("form_epi", clear_on_submit=True):
-        matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor])
-        c1, c2, c3 = st.columns(3)
-        epi = c1.selectbox("EPI", ("Camiseta", "Bota de segurança", "Luvas", "Óculos", "Protetor auricular", "Outro"))
-        detalhe = c2.text_input("Tamanho/Detalhe", max_chars=100)
-        data_entrega = c3.date_input("Data da entrega", value=date.today())
-        if st.form_submit_button("Registrar entrega"):
-            pessoa = base[base["matricula"] == matricula].iloc[0]
-            novo = {
-                "entrega_id": str(uuid.uuid4()), "matricula": matricula, "funcionario": pessoa["funcionario"],
-                "setor": pessoa["setor"], "data": data_entrega.isoformat(), "epi": epi,
-                "detalhe_tamanho": detalhe, "responsavel": autor,
-            }
-            if salvar_entidade("epis", pd.concat([epis, pd.DataFrame([novo])], ignore_index=True)):
-                registrar_historico(matricula, pessoa["funcionario"], "Entrega de EPI", f"{epi}: {detalhe or 'sem detalhe'}.", autor)
-                st.rerun()
 
-    st.markdown("#### Histórico de entregas")
-    tabela = tabela_exibicao(filtrar_setor(epis, setor).sort_values("data", ascending=False), ["data", "funcionario", "setor", "epi", "detalhe_tamanho", "responsavel"])
-    st.dataframe(tabela, use_container_width=True, hide_index=True)
+    with aba_entrega:
+        if not opcoes:
+            st.info("Não há colaboradores ativos para o filtro atual.")
+        else:
+            with st.form("form_epi_entrega", clear_on_submit=True):
+                matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor], key="epi_ent_mat")
+                c1, c2, c3 = st.columns(3)
+                epi = c1.selectbox("EPI", ("Camiseta", "Bota de segurança", "Luvas", "Óculos", "Protetor auricular", "Outro"))
+                detalhe = c2.text_input("Tamanho/Detalhe", max_chars=100)
+                data_entrega = c3.date_input("Data da entrega", value=date.today())
+                if st.form_submit_button("Registrar Entrega"):
+                    pessoa = base[base["matricula"] == matricula].iloc[0]
+                    novo = {
+                        "entrega_id": str(uuid.uuid4()), "matricula": matricula, "funcionario": pessoa["funcionario"],
+                        "setor": pessoa["setor"], "data": data_entrega.isoformat(), "epi": epi,
+                        "detalhe_tamanho": detalhe, "responsavel": autor, "tipo_registro": "Entrega",
+                    }
+                    if salvar_entidade("epis", pd.concat([epis, pd.DataFrame([novo])], ignore_index=True)):
+                        registrar_historico(matricula, pessoa["funcionario"], "Entrega de EPI", f"{epi}: {detalhe or 'sem detalhe'}.", autor)
+                        st.rerun()
+
+        st.markdown("#### Histórico de entregas")
+        entregas_df = epis[epis["tipo_registro"] == "Entrega"] if "tipo_registro" in epis.columns else epis
+        tabela_ent = tabela_exibicao(filtrar_setor(entregas_df, setor).sort_values("data", ascending=False), ["data", "funcionario", "setor", "epi", "detalhe_tamanho", "responsavel"])
+        st.dataframe(tabela_ent, use_container_width=True, hide_index=True)
+        bloco_exportacao("relatorio_entregas_epi", tabela_ent)
+
+    with aba_solicitacao:
+        if not opcoes:
+            st.info("Não há colaboradores ativos para o filtro atual.")
+        else:
+            with st.form("form_epi_solicitacao", clear_on_submit=True):
+                matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor], key="epi_sol_mat")
+                c1, c2 = st.columns(2)
+                epi = c1.selectbox("EPI Solicitado", ("Camiseta", "Bota de segurança", "Luvas", "Óculos", "Protetor auricular", "Outro"), key="sol_epi")
+                detalhe = c2.text_input("Motivo / Tamanho necessário", max_chars=150, key="sol_det")
+                data_sol = st.date_input("Data da Solicitação", value=date.today(), key="sol_dt")
+                if st.form_submit_button("Gerar Solicitação ao RH"):
+                    pessoa = base[base["matricula"] == matricula].iloc[0]
+                    novo = {
+                        "entrega_id": str(uuid.uuid4()), "matricula": matricula, "funcionario": pessoa["funcionario"],
+                        "setor": pessoa["setor"], "data": data_sol.isoformat(), "epi": epi,
+                        "detalhe_tamanho": detalhe, "responsavel": autor, "tipo_registro": "Solicitação",
+                    }
+                    if salvar_entidade("epis", pd.concat([epis, pd.DataFrame([novo])], ignore_index=True)):
+                        registrar_historico(matricula, pessoa["funcionario"], "Solicitação de EPI", f"Solicitado ao RH - {epi}: {detalhe}", autor)
+                        st.success("Solicitação gerada e encaminhada ao RH com sucesso!")
+                        st.rerun()
+
+        st.markdown("#### Solicitações pendentes ao RH")
+        sol_df = epis[epis["tipo_registro"] == "Solicitação"] if "tipo_registro" in epis.columns else pd.DataFrame(columns=epis.columns)
+        if not sol_df.empty:
+            tabela_sol = tabela_exibicao(filtrar_setor(sol_df, setor).sort_values("data", ascending=False), ["data", "funcionario", "setor", "epi", "detalhe_tamanho", "responsavel"])
+            st.dataframe(tabela_sol, use_container_width=True, hide_index=True)
+            bloco_exportacao("solicitacoes_epi_rh", tabela_sol)
+        else:
+            st.info("Nenhuma solicitação de EPI registrada.")
 
 
 def tela_ficha(colaboradores: pd.DataFrame, historico: pd.DataFrame) -> None:
@@ -644,7 +687,7 @@ def tela_ficha(colaboradores: pd.DataFrame, historico: pd.DataFrame) -> None:
     c2.metric("Cargo", pessoa["cargo"] or "Não informado")
     c3.metric("Setor", pessoa["setor"] or "Não informado")
     c4.metric("Status", pessoa["status"])
-    st.markdown(f"**Admissão:** {formatar_data(pessoa['admissao'])} &nbsp;&nbsp; **Nascimento:** {formatar_data(pessoa['nascimento'])} &nbsp;&nbsp; **Retorno de férias:** {formatar_data(pessoa['data_retorno_ferias'])}")
+    st.markdown(f"**Admissão:** {formatar_data(pessoa['admissao'])} &nbsp;&nbsp; **Nascimento:** {formatar_data(pessoa['nascimento'])} &nbsp;&nbsp; **Últimas Férias:** {formatar_data(pessoa['ultimas_ferias'])} &nbsp;&nbsp; **Retorno:** {formatar_data(pessoa['data_retorno_ferias'])}")
     eventos = historico[historico["matricula"] == matricula].sort_values("data", ascending=False)
     st.markdown("#### Linha do tempo")
     if eventos.empty:
@@ -653,51 +696,109 @@ def tela_ficha(colaboradores: pd.DataFrame, historico: pd.DataFrame) -> None:
         st.dataframe(tabela_exibicao(eventos, ["data", "tipo_evento", "descricao", "autor"]), use_container_width=True, hide_index=True)
 
 
-def tela_experiencia(colaboradores: pd.DataFrame, setor: str) -> None:
-    st.subheader("Controle de experiência — 45 e 90 dias")
+def tela_experiencia(colaboradores: pd.DataFrame, setor: str, autor: str) -> None:
+    st.subheader("Controle de experiência (45 / 90 dias) & Contrato de Trabalho")
     hoje = date.today()
     base = filtrar_setor(colaboradores, setor)
-    base = base[(base["status"] == "Ativo") & (base["decisao_experiencia"].str.lower() != "efetivado")].copy()
-    linhas: list[dict[str, Any]] = []
+    
+    # Filtrar apenas colaboradores em período de experiência (ativos e sem decisão definitiva de efetivação)
+    pendentes = []
     for _, pessoa in base.iterrows():
-        classificacao, dias45, dias90 = classificar_experiencia(para_data(pessoa["admissao"]), hoje)
-        linhas.append({
-            "Matrícula": pessoa["matricula"], "Funcionário": pessoa["funcionario"], "Setor": pessoa["setor"], "Cargo": pessoa["cargo"],
-            "45 dias": formatar_data((para_data(pessoa["admissao"]) + timedelta(days=45)) if para_data(pessoa["admissao"]) else None),
-            "90 dias": formatar_data((para_data(pessoa["admissao"]) + timedelta(days=90)) if para_data(pessoa["admissao"]) else None),
-            "Situação": classificacao, "Dias p/ 90": dias90 if dias90 is not None else "—",
-        })
-    if not linhas:
-        st.success("Nenhum colaborador pendente de decisão de experiência.")
-    else:
-        tabela = pd.DataFrame(linhas).sort_values("Dias p/ 90", key=lambda s: pd.to_numeric(s, errors="coerce").fillna(99999))
-        st.dataframe(tabela, use_container_width=True, hide_index=True)
-        bloco_exportacao("controle_experiencia", tabela)
+        if pessoa["status"] != "Ativo":
+            continue
+        admissao = para_data(pessoa["admissao"])
+        if not admissao:
+            continue
+        _, dias45, dias90 = classificar_experiencia(admissao, hoje)
+        decisao = limpar_texto(pessoa["decisao_experiencia"])
+        # Mostrar quem está dentro do período (até 90 dias e não efetivado)
+        if dias90 is not None and dias90 >= -10 and decisao.lower() != "efetivado":
+            pendentes.append(pessoa)
+
+    if not pendentes:
+        st.success("Nenhum colaborador dentro do período de contrato de experiência pendente de avaliação.")
+        return
+
+    for pessoa in pendentes:
+        admissao = para_data(pessoa["admissao"])
+        _, dias45, dias90 = classificar_experiencia(admissao, hoje)
+        situacao, _, _ = classificar_experiencia(admissao, hoje)
+        
+        with st.container(border=True):
+            col_info, col_acoes = st.columns([2, 2.5])
+            with col_info:
+                st.markdown(f"**{pessoa['funcionario']}** (`{pessoa['matricula']}`)")
+                st.caption(f"Setor: {pessoa['setor']} | Cargo: {pessoa['cargo']}")
+                st.markdown(f"Admissão: **{formatar_data(admissao)}**")
+                st.markdown(f"Situação: **{situacao}** (90 dias em {dias90} dias)")
+            
+            with col_acoes:
+                with st.form(f"form_contrato_{pessoa['matricula']}"):
+                    decisao_atual = pessoa["decisao_experiencia"] if pessoa["decisao_experiencia"] in ("", "Em avaliação", "Efetivado", "Não efetivado") else ""
+                    nova_decisao = st.selectbox("Contrato de Trabalho", ("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato"), index=("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato").index(decisao_atual) if decisao_atual in ("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato") else 0)
+                    aviso_rh = st.checkbox("✅ Enviar aviso formal de fechamento de contrato ao RH")
+                    
+                    if st.form_submit_button("Salvar Decisão Contratual"):
+                        idx = colaboradores.index[colaboradores["matricula"] == pessoa["matricula"]][0]
+                        colaboradores.loc[idx, "decisao_experiencia"] = nova_decisao
+                        if nova_decisao == "Desligado por quebra de contrato":
+                            colaboradores.loc[idx, "status"] = "Desligado"
+                            colaboradores.loc[idx, "data_desligamento"] = date.today().isoformat()
+                        
+                        if salvar_entidade("colaboradores", colaboradores):
+                            msg_aviso = " com aviso formal ao RH" if aviso_rh else ""
+                            registrar_historico(pessoa["matricula"], pessoa["funcionario"], "Contrato Experiência", f"Definição: {nova_decisao}{msg_aviso}", autor)
+                            st.success("Atualizado com sucesso!")
+                            st.rerun()
 
 
-def tela_ferias(colaboradores: pd.DataFrame, autor: str) -> None:
-    st.subheader("Escala de férias")
+def tela_ferias_escala(colaboradores: pd.DataFrame, autor: str) -> None:
+    st.subheader("Escala Inteligente de Férias")
+    aba_lancamento, aba_escala = st.tabs(["Lançamento de Férias", "Visão Geral & Vencimentos"])
     opcoes, mapa = opcoes_colaboradores(colaboradores, apenas_ativos=True)
-    with st.form("form_ferias", clear_on_submit=True):
-        matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor]) if opcoes else None
-        c1, c2 = st.columns(2)
-        inicio = c1.date_input("Início", value=date.today())
-        retorno = c2.date_input("Retorno previsto", value=date.today() + timedelta(days=30))
-        if st.form_submit_button("Registrar férias"):
-            if not matricula:
-                st.error("Selecione um colaborador.")
-            elif retorno <= inicio:
-                st.error("A data de retorno precisa ser posterior à data de início.")
-            else:
-                indice = colaboradores.index[colaboradores["matricula"] == matricula][0]
-                colaboradores.loc[indice, "status"] = "Férias"
-                colaboradores.loc[indice, "ultimas_ferias"] = inicio.isoformat()
-                colaboradores.loc[indice, "data_retorno_ferias"] = retorno.isoformat()
-                if salvar_entidade("colaboradores", colaboradores):
-                    registrar_historico(matricula, colaboradores.loc[indice, "funcionario"], "Férias", f"Férias de {inicio:%d/%m/%Y} a {retorno:%d/%m/%Y}.", autor)
-                    st.rerun()
-    em_ferias = colaboradores[colaboradores["status"] == "Férias"]
-    st.dataframe(tabela_exibicao(em_ferias, ["matricula", "funcionario", "setor", "cargo", "ultimas_ferias", "data_retorno_ferias"]), use_container_width=True, hide_index=True)
+
+    with aba_lancamento:
+        with st.form("form_escala_ferias", clear_on_submit=True):
+            matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor]) if opcoes else None
+            c1, c2 = st.columns(2)
+            inicio = c1.date_input("Início das Férias", value=date.today())
+            retorno = c2.date_input("Retorno Previsto", value=date.today() + timedelta(days=30))
+            if st.form_submit_button("Programar e Marcar em Férias"):
+                if not matricula:
+                    st.error("Selecione um colaborador.")
+                elif retorno <= inicio:
+                    st.error("A data de retorno precisa ser posterior à data de início.")
+                else:
+                    indice = colaboradores.index[colaboradores["matricula"] == matricula][0]
+                    colaboradores.loc[indice, "status"] = "Férias"
+                    colaboradores.loc[indice, "ultimas_ferias"] = inicio.isoformat()
+                    colaboradores.loc[indice, "data_retorno_ferias"] = retorno.isoformat()
+                    if salvar_entidade("colaboradores", colaboradores):
+                        registrar_historico(matricula, colaboradores.loc[indice, "funcionario"], "Férias", f"Férias programadas de {inicio:%d/%m/%Y} a {retorno:%d/%m/%Y}.", autor)
+                        st.success("Férias registradas com sucesso!")
+                        st.rerun()
+
+    with aba_escala:
+        ativos_ferias = colaboradores[colaboradores["status"].isin(["Ativo", "Férias"])].copy()
+        linhas = []
+        hoje = date.today()
+        for _, p in ativos_ferias.iterrows():
+            adm = para_data(p["admissao"])
+            ult = para_data(p["ultimas_ferias"])
+            vencimento_aquisitivo = (adm + timedelta(days=365)) if adm else None
+            vencimento_concessivo = (adm + timedelta(days=730)) if adm else None
+            
+            linhas.append({
+                "Matrícula": p["matricula"], "Funcionário": p["funcionario"], "Setor": p["setor"], "Cargo": p["cargo"],
+                "Status": p["status"], "Admissão": formatar_data(adm), "Últimas Férias": formatar_data(ult),
+                "Fim Período Aquisitivo": formatar_data(vencimento_aquisitivo), "Limite Concessivo": formatar_data(vencimento_concessivo),
+            })
+        if linhas:
+            tabela_fer = pd.DataFrame(linhas)
+            st.dataframe(tabela_fer, use_container_width=True, hide_index=True)
+            bloco_exportacao("escala_inteligente_ferias", tabela_fer)
+        else:
+            st.info("Nenhum colaborador para calcular escala.")
 
 
 def tela_indicadores(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str) -> None:
@@ -736,10 +837,12 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
             c3, c4 = st.columns(2)
             setor = c3.text_input("Setor").strip()
             cargo = c4.text_input("Cargo").strip()
-            c5, c6, c7 = st.columns(3)
+            c5, c6, c7, c8 = st.columns(4)
             admissao = c5.date_input("Admissão", value=date.today())
             nascimento = c6.date_input("Nascimento", value=date(1990, 1, 1))
-            status = c7.selectbox("Status", STATUS_COLABORADOR)
+            ultimas_ferias = c7.date_input("Últimas Férias (opcional)", value=None)
+            status = c8.selectbox("Status", STATUS_COLABORADOR)
+            
             if st.form_submit_button("Cadastrar"):
                 if not matricula or not nome or not setor:
                     st.error("Matrícula, nome e setor são obrigatórios.")
@@ -749,7 +852,8 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
                     novo = {
                         "matricula": limpar_matricula(matricula), "funcionario": nome, "setor": setor, "cargo": cargo,
                         "admissao": admissao.isoformat(), "nascimento": nascimento.isoformat(), "status": status,
-                        "ultimas_ferias": "", "data_retorno_ferias": "", "decisao_experiencia": "", "data_desligamento": "",
+                        "ultimas_ferias": ultimas_ferias.isoformat() if ultimas_ferias else "",
+                        "data_retorno_ferias": "", "decisao_experiencia": "", "data_desligamento": "",
                     }
                     atualizada = pd.concat([colaboradores, pd.DataFrame([novo])], ignore_index=True)
                     if salvar_entidade("colaboradores", atualizada):
@@ -771,14 +875,14 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
             c3, c4 = st.columns(2)
             setor = c3.text_input("Setor", value=pessoa["setor"]).strip()
             cargo = c4.text_input("Cargo", value=pessoa["cargo"]).strip()
+            
             c5, c6, c7 = st.columns(3)
             admissao = c5.date_input("Admissão", value=para_data(pessoa["admissao"]) or date.today())
+            ultimas_ferias_atual = para_data(pessoa["ultimas_ferias"])
+            ult_ferias = c6.date_input("Últimas Férias", value=ultimas_ferias_atual if ultimas_ferias_atual else None)
             
             status_atual = pessoa["status"] if pessoa["status"] in STATUS_COLABORADOR else "Ativo"
-            status = c6.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(status_atual))
-            
-            decisao_atual = pessoa["decisao_experiencia"] if pessoa["decisao_experiencia"] in ("", "Em avaliação", "Efetivado", "Não efetivado") else ""
-            decisao = c7.selectbox("Experiência", ("", "Em avaliação", "Efetivado", "Não efetivado"), index=("", "Em avaliação", "Efetivado", "Não efetivado").index(decisao_atual))
+            status = c7.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(status_atual))
             
             dt_deslig = para_data(pessoa["data_desligamento"]) or date.today()
             data_desligamento = st.date_input("Data do desligamento", value=dt_deslig)
@@ -791,8 +895,9 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
                 elif duplicada.any():
                     st.error("A matrícula informada já pertence a outro colaborador.")
                 else:
-                    colaboradores.loc[indice, ["matricula", "funcionario", "setor", "cargo", "admissao", "status", "decisao_experiencia", "data_desligamento"]] = [
-                        nova_matricula, nome, setor, cargo, admissao.isoformat(), status, decisao,
+                    colaboradores.loc[indice, ["matricula", "funcionario", "setor", "cargo", "admissao", "ultimas_ferias", "status", "data_desligamento"]] = [
+                        nova_matricula, nome, setor, cargo, admissao.isoformat(),
+                        ult_ferias.isoformat() if ult_ferias else "", status,
                         data_desligamento.isoformat() if status == "Desligado" else "",
                     ]
                     if salvar_entidade("colaboradores", colaboradores):
@@ -976,9 +1081,9 @@ def main() -> None:
     elif menu == "Ficha Individual do Colaborador":
         tela_ficha(colaboradores, historico)
     elif menu == "Controle de Experiência (45/90 dias)":
-        tela_experiencia(colaboradores, setor)
-    elif menu == "Escala de Férias":
-        tela_ferias(colaboradores, nome)
+        tela_experiencia(colaboradores, setor, nome)
+    elif menu == "Escala Inteligente de Férias":
+        tela_ferias_escala(colaboradores, nome)
     elif menu == "Colaboradores em Férias":
         ferias = filtrar_setor(colaboradores[colaboradores["status"] == "Férias"], setor)
         st.subheader("Colaboradores em férias")
