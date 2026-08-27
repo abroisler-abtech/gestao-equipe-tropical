@@ -140,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.3 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.3.2 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -374,69 +374,6 @@ def gerar_pdf_simples(titulo, colunas, dados):
     buffer.close()
     return pdf_out
 
-def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, ferias_cnt, afastados_cnt, ocorrencias_cnt):
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib import colors
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
-    elements = []
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=15, leading=18, textColor=colors.HexColor("#1B3B2B"), spaceAfter=5)
-    sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor("#475569"), spaceAfter=10)
-
-    hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
-    elements.append(Paragraph("<b>RELATÓRIO GERAL DE DASHBOARD & INDICADORES DA EQUIPE</b>", title_style))
-    elements.append(Paragraph(f"<b>Setor Filtrado:</b> {setor_nome} | <b>Gerado em:</b> {hoje_txt} | Tropical Distribuidora — Painel de Gestão & DP", sub_style))
-    elements.append(Spacer(1, 5))
-
-    indicadores_data = [
-        ["Total Quadro", "Ativos", "Em Férias", "Afastados/INSS", "Ocorrências (Mês)"],
-        [str(total_q), str(ativos), str(ferias_cnt), str(afastados_cnt), str(ocorrencias_cnt)]
-    ]
-    t_ind = Table(indicadores_data, colWidths=[130]*5)
-    t_ind.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1B3B2B")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#F0F7F4")),
-        ('TEXTCOLOR', (0,1), (-1,1), colors.HexColor("#0F172A")),
-        ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-    ]))
-    elements.append(t_ind)
-    elements.append(Spacer(1, 15))
-
-    elements.append(Paragraph("<b>Quadro Atual de Colaboradores</b>", styles['Heading2']))
-    elements.append(Spacer(1, 5))
-    
-    cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
-    for _, row in df_filtrado[cols_pres].iterrows():
-        r_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in row]
-        table_data.append(r_data)
-
-    t_quadro = Table(table_data, repeatRows=1)
-    t_quadro.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#E2E8F0")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#1E293B")),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-    ]))
-    elements.append(t_quadro)
-    doc.build(elements)
-    pdf_out = buffer.getvalue()
-    buffer.close()
-    return pdf_out
-
 def converter_df_para_excel(df_exp):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -454,7 +391,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.2**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -600,7 +537,7 @@ if verificar_senha():
                 else:
                     df_u.loc[mask, 'Senha'] = str(s_nova)
                     salvar_usuarios(df_u)
-                    st.toast("✅ Senha alterada com sucesso!", icon="🎉")
+                    st.success("✅ Salvo com sucesso! Senha alterada.")
                     st.rerun()
 
     df = carregar_dados()
@@ -623,7 +560,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3 (Ajustes de Calendário & Alertas)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.2 (Calendários Liberados & Alertas Ajustados)**")
     st.divider()
 
     if not df.empty:
@@ -668,6 +605,23 @@ if verificar_senha():
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
             
+            # --- ALERTA DE RETORNO DE FÉRIAS (ÚLTIMOS 2 DIAS) ---
+            if not df_ferias_st.empty and 'dt_ult_ferias' in df_ferias_st.columns:
+                for _, colab_fer in df_ferias_st.iterrows():
+                    dt_inicio_f = colab_fer.get('dt_ult_ferias')
+                    if pd.notnull(dt_inicio_f):
+                        dt_retorno_f = dt_inicio_f + timedelta(days=30)
+                        dias_ate_retorno = (dt_retorno_f - hoje).days
+                        if dias_ate_retorno <= 2:
+                            if dias_ate_retorno == 0:
+                                st.warning(f"🏖️ **RETORNO DE FÉRIAS HOJE:** O(a) colaborador(a) **{colab_fer['Funcionário']}** ({colab_fer.get('Setor', 'N/A')}) retorna das férias **hoje** ({dt_retorno_f.strftime('%d/%m/%Y')})! Lembre-se de reativar o status no cadastro.")
+                            elif dias_ate_retorno == 1:
+                                st.warning(f"🏖️ **RETORNO DE FÉRIAS AMANHÃ:** O(a) colaborador(a) **{colab_fer['Funcionário']}** ({colab_fer.get('Setor', 'N/A')}) retorna das férias **amanhã** ({dt_retorno_f.strftime('%d/%m/%Y')})!")
+                            elif dias_ate_retorno == 2:
+                                st.info(f"🏖️ **FÉRIAS VENCENDO EM BREVE:** O(a) colaborador(a) **{colab_fer['Funcionário']}** ({colab_fer.get('Setor', 'N/A')}) retorna em 2 dias ({dt_retorno_f.strftime('%d/%m/%Y')}).")
+                            elif dias_ate_retorno < 0:
+                                st.error(f"⚠️ **ATENÇÃO AO DP:** O prazo de férias de **{colab_fer['Funcionário']}** venceu em {dt_retorno_f.strftime('%d/%m/%Y')} e ele(a) ainda consta como 'Férias'.")
+
             chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
             chamada_realizada = not chamada_hoje_existente.empty
 
@@ -854,7 +808,7 @@ if verificar_senha():
                         novo_av = {"Matricula": str(d_c.get('Matricula', '')), "Funcionário": n_colab, "Setor": d_c.get('Setor', ''), "Data": d_f.strftime('%d/%m/%Y'), "Tipo": t_f, "Dias": dias_n, "CID": cid_v.upper() or "-", "Motivo": obs_v, "dt_falta": d_f}
                         df_faltas = pd.concat([df_faltas, pd.DataFrame([novo_av])], ignore_index=True)
                         salvar_faltas(df_faltas)
-                        st.success("✅ Salvo com sucesso! Lançamento avulsos gravado.")
+                        st.success("✅ Salvo com sucesso! Lançamento avulso gravado.")
                         st.rerun()
 
             with tab_hist_f:
@@ -938,7 +892,13 @@ _Registrado por: {nome_usuario}_"""
                     dt_adm_txt = r_c['dt_adm'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_adm')) else 'N/A'
                     dt_nasc_txt = r_c['dt_nasc'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_nasc')) else 'N/A'
                     ult_f_txt = str(r_c.get('Ultimas_Ferias')) if pd.notnull(r_c.get('Ultimas_Ferias')) else 'Nenhuma registrada'
-                    st.info(f"📅 **Admissão:** {dt_adm_txt} | 🎂 **Nascimento:** {dt_nasc_txt}\n\n🏖️ **Últimas Férias:** {ult_f_txt}")
+                    
+                    info_retorno = ""
+                    if str(r_c.get('Status')) == 'Férias' and pd.notnull(r_c.get('dt_ult_ferias')):
+                        dt_ret_est = r_c.get('dt_ult_ferias') + timedelta(days=30)
+                        info_retorno = f" | 🔄 **Previsão de Retorno:** {dt_ret_est.strftime('%d/%m/%Y')}"
+
+                    st.info(f"📅 **Admissão:** {dt_adm_txt} | 🎂 **Nascimento:** {dt_nasc_txt}\n\n🏖️ **Últimas Férias:** {ult_f_txt}{info_retorno}")
                 
                 st.divider()
                 st.markdown("##### 🕒 Histórico de Movimentações, Punições e Alterações (Timeline):")
@@ -1021,8 +981,13 @@ _Registrado por: {nome_usuario}_"""
                     set_c = s1.selectbox("Setor:", sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Geral"])
                     car_c = s2.text_input("Cargo:")
                     d1, d2, d3 = st.columns(3)
-                    adm_c = d1.date_input("Admissão:", value=hoje, format="DD/MM/YYYY")
+                    
+                    # Calendário de Admissão com ano livre desde 1950
+                    adm_c = d1.date_input("Admissão:", value=hoje, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
+                    
+                    # Calendário de Nascimento com ano livre desde 1950
                     nasc_c = d2.date_input("Nascimento:", value=date(1995, 1, 1), min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
+                    
                     st_c = d3.selectbox("Status:", ["Ativo", "Férias", "Afastado", "Desligado"])
                     
                     if st.form_submit_button("Salvar") and nom_c:
@@ -1049,22 +1014,25 @@ _Registrado por: {nome_usuario}_"""
                         
                         ed1, ed2, ed3 = st.columns(3)
                         val_ad = row_e.get('dt_adm') if pd.notnull(row_e.get('dt_adm')) else hoje
-                        ead = ed1.date_input("Admissão:", value=val_ad, format="DD/MM/YYYY")
+                        
+                        # Calendário de Admissão editável com intervalo desde 1950
+                        ead = ed1.date_input("Admissão:", value=val_ad, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
                         
                         opts_st = ["Ativo", "Férias", "Afastado", "Desligado"]
                         st_at = row_e.get('Status', 'Ativo')
                         est = ed2.selectbox("Status:", opts_st, index=opts_st.index(st_at) if st_at in opts_st else 0)
                         
-                        # CALENDÁRIO HABILITADO PARA ÚLTIMAS FÉRIAS (Substituiu o campo de texto simples)
                         val_uf_atual = pd.to_datetime(row_e.get('Ultimas_Ferias'), errors='coerce')
                         val_uf_def = val_uf_atual.date() if pd.notnull(val_uf_atual) else hoje
-                        euf = ed3.date_input("Últimas Férias:", value=val_uf_def, min_value=date(2015, 1, 1), max_value=hoje, format="DD/MM/YYYY")
+                        
+                        # Calendário de Últimas Férias liberado desde 1950
+                        euf = ed3.date_input("Últimas Férias:", value=val_uf_def, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
                         
                         ddes = None
                         if est == "Desligado":
                             st.warning("⚠️ Informe a data do desligamento:")
                             vd_at = pd.to_datetime(row_e.get('Data_Desligamento'), errors='coerce')
-                            ddes = st.date_input("Data Desligamento:", value=vd_at.date() if pd.notnull(vd_at) else hoje, format="DD/MM/YYYY")
+                            ddes = st.date_input("Data Desligamento:", value=vd_at.date() if pd.notnull(vd_at) else hoje, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
 
                         if st.form_submit_button("Atualizar"):
                             df.loc[idx_el, 'Matricula'] = em
@@ -1107,7 +1075,7 @@ _Registrado por: {nome_usuario}_"""
                     cm = st.columns(2)
                     for i_m, mn in enumerate(TODOS_MODULOS):
                         with cm[i_m % 2]:
-                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}"):
+                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak"):
                                 mods_s.append(mn)
                     if st.form_submit_button("Criar Usuário") and nn and nl and ns:
                         if nl in df_usuarios['Usuario'].astype(str).str.lower().values:
@@ -1138,7 +1106,7 @@ _Registrado por: {nome_usuario}_"""
                         at_mods = [m.strip() for m in str(ur.get('Modulos', '')).split(',')]
                         for i_mm, m_nm in enumerate(TODOS_MODULOS):
                             with c_emd[i_mm % 2]:
-                                if st.checkbox(m_nm, value=m_nm in at_mods, key=f"med_{i_mm}"):
+                                if st.checkbox(m_nm, value=m_nm in at_mods, key=f"med_{i_mm}dak"):
                                     ed_mods.append(m_nm)
                         if st.form_submit_button("Atualizar Usuário"):
                             df_usuarios.loc[iu, 'Nome'] = un
