@@ -22,10 +22,12 @@ st.set_page_config(
 
 # --- CONFIGURAÇÃO DA API DO GEMINI (IA INTEGRADA) ---
 try:
-    gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+    gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not gemini_api_key:
+        gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
-        # Utilizando o modelo padrão atual para texto
         modelo_ia = genai.GenerativeModel('gemini-1.5-pro')
         ia_disponivel = True
     else:
@@ -33,7 +35,7 @@ try:
 except Exception:
     ia_disponivel = False
 
-# --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS (VERDE TROPICAL NA SIDEBAR) ---
+# --- ESTILOS CSS PERSONALIZADOS ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -44,21 +46,16 @@ st.markdown(
     <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
     
     <style>
-        /* Fundo escuro principal */
         .stApp {{
             background-color: #0E1117;
             color: #FFFFFF;
         }}
-        
-        /* BARRA LATERAL (SIDEBAR) NO VERDE DA TROPICAL */
         [data-testid="stSidebar"] {{
             background-color: #1B3B2B !important;
         }}
         [data-testid="stSidebar"] * {{
             color: #FFFFFF !important;
         }}
-        
-        /* Botões em destaque no Laranja Tropical */
         div.stButton > button {{
             background-color: #FF6B00 !important;
             color: #FFFFFF !important;
@@ -73,8 +70,6 @@ st.markdown(
             background-color: #E05E00 !important;
             transform: translateY(-2px);
         }}
-        
-        /* Botões de Download em fundo escuro com Borda Laranja */
         div.stDownloadButton > button {{
             background-color: #1E293B !important;
             color: #FF6B00 !important;
@@ -82,20 +77,11 @@ st.markdown(
             border-radius: 12px !important;
             font-weight: bold !important;
         }}
-        
-        /* Checkboxes e seleções no Laranja */
-        div[data-baseweb="checkbox"] span {{
-            border-color: #FF6B00 !important;
-        }}
-        
-        /* Cartões de Métricas e Indicadores */
         [data-testid="stMetricValue"] {{
             color: #FF6B00 !important;
             font-size: 2rem !important;
             font-weight: bold !important;
         }}
-        
-        /* Estilização das Abas (Tabs) */
         button[data-baseweb="tab"] {{
             color: #94A3B8 !important;
             font-weight: bold !important;
@@ -128,15 +114,12 @@ TODOS_MODULOS = [
     "📥 Importar Nova Base"
 ]
 
-# --- GERADOR DE LINK PARA O WHATSAPP ---
 def gerar_link_whatsapp(telefone, nome_usuario, login_acesso, senha_acesso):
     num_limpo = "".join(filter(str.isdigit, str(telefone)))
     if not num_limpo.startswith("55") and len(num_limpo) in [10, 11]:
         num_limpo = f"55{num_limpo}"
-        
     conf_email = st.secrets.get("email", {})
     url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
-    
     texto_msg = f"""🔑 *ACESSO AO SISTEMA - PAINEL DE GESTÃO & DP*
 
 Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liberado.
@@ -146,11 +129,8 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 🔑 *Senha:* {senha_acesso}
 
 _Painel de Gestão & DP Versão 2.0 - Desenvolvido por André Broisler_"""
+    return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
-    texto_encoded = urllib.parse.quote(texto_msg)
-    return f"https://wa.me/{num_limpo}?text={texto_encoded}"
-
-# --- DISPARO DE E-MAIL SMTP ---
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
     try:
         conf_email = st.secrets.get("email", {})
@@ -184,17 +164,14 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
         </html>
         """
         msg.attach(MIMEText(html_corpo, "html"))
-
         with smtplib.SMTP(server_smtp, porta_smtp) as server:
             server.starttls()
             server.login(remetente, senha_app)
             server.sendmail(remetente, destino_email, msg.as_string())
-
         return True, "E-mail enviado com sucesso!"
     except Exception as e:
         return False, str(e)
 
-# --- GERENCIAMENTO DE USUÁRIOS E PERMISSÕES ---
 def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
@@ -220,7 +197,6 @@ def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
     df_u.to_excel(ARQUIVO_USUARIOS, index=False)
 
-# --- GERADOR DE RELATÓRIOS EM PDF ---
 def gerar_pdf_simples(titulo, colunas, dados):
     from reportlab.lib.pagesizes import letter, landscape
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -230,7 +206,6 @@ def gerar_pdf_simples(titulo, colunas, dados):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     elements = []
-
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1B3B2B"), spaceAfter=15)
     hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
@@ -269,7 +244,6 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
     elements = []
-
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=15, leading=18, textColor=colors.HexColor("#1B3B2B"), spaceAfter=5)
     sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor("#475569"), spaceAfter=10)
@@ -320,7 +294,6 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
         ('BOTTOMPADDING', (0,0), (-1,-1), 4),
     ]))
     elements.append(t_quadro)
-
     doc.build(elements)
     pdf_out = buffer.getvalue()
     buffer.close()
@@ -332,7 +305,6 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
     return output.getvalue()
 
-# --- AUTENTICAÇÃO COM NOME/E-MAIL E ACESSO MESTRE ---
 def verificar_senha():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
@@ -348,7 +320,6 @@ def verificar_senha():
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
-        
         user_input = st.text_input("E-mail ou Usuário:").strip().lower()
         senha_input = st.text_input("Senha:", type="password")
         btn_entrar = st.button("🔑 Entrar no Sistema")
@@ -427,6 +398,9 @@ if verificar_senha():
                 df['Status'] = 'Ativo'
             else:
                 df['Status'] = df['Status'].fillna('Ativo')
+
+            if 'Data_Desligamento' not in df.columns:
+                df['Data_Desligamento'] = None
 
             return df
         else:
@@ -523,7 +497,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.0 (Com IA Integrada)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.1 (Atualizada com Ajustes)**")
     st.divider()
 
     if not df.empty:
@@ -577,7 +551,6 @@ if verificar_senha():
             if chamada_realizada:
                 df_folgas_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] == 'Folga Concedida']
                 df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] != 'Folga Concedida']
-                
                 qtd_folgas_hoje = len(df_folgas_hoje)
                 qtd_faltantes_hoje = len(df_ausencias_hoje)
                 qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje - qtd_folgas_hoje)
@@ -604,7 +577,6 @@ if verificar_senha():
             if not exp_criticos.empty:
                 st.warning(f"⏰ **ALERTA DE EXPERIÊNCIA:** Existem {len(exp_criticos)} contrato(s) de experiência vencendo nos próximos 10 dias!")
 
-            # --- INSIGHTS INTELIGENTES COM IA (GEMINI) ---
             if ia_disponivel and st.button("✨ Gerar Análise Executiva e Insights com IA"):
                 with st.spinner("Analisando o quadro e as ocorrências da Tropical com Inteligência Artificial..."):
                     resumo_dados = f"""
@@ -673,8 +645,9 @@ if verificar_senha():
             st.markdown("---")
 
             vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
-            if not vagas_abertas.empty:
-                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existen {len(vagas_abertas)} vaga(s) aberta(s) por desligamento/término de contrato!")
+            qtd_vagas = len(vagas_abertas)
+            if qtd_vagas > 0:
+                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem exatamente **{qtd_vagas}** vaga(s) aberta(s) por desligamento/término de contrato!")
 
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Quadro", len(df_filtrado))
@@ -708,31 +681,11 @@ if verificar_senha():
                 cols_m = [c for c in ['Nascimento', 'Funcionário', 'Setor', 'Cargo'] if c in niver_mes.columns]
                 exibir_modal_detalhes(f"Aniversariantes do Mês ({hoje.strftime('%m/%Y')})", niver_mes[cols_m])
 
-            st.markdown("---")
-            
-            g1, g2 = st.columns(2)
-            with g1:
-                df_status_cnt = df_filtrado['Status'].value_counts().reset_index()
-                df_status_cnt.columns = ['Status', 'Quantidade']
-                fig_status = px.pie(df_status_cnt, values='Quantidade', names='Status', title="Distribuição de Status do Quadro", hole=0.4)
-                fig_status.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='white')
-                st.plotly_chart(fig_status, use_container_width=True)
-                
-            with g2:
-                if not df_faltas_filtrado.empty:
-                    df_tipo_falta = df_faltas_filtrado.groupby('Tipo')['Dias'].sum().reset_index()
-                    fig_faltas = px.bar(df_tipo_falta, x='Tipo', y='Dias', title="Total de Dias Perdidos por Tipo (Geral)", text_auto=True, color='Tipo')
-                    fig_faltas.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='white')
-                    st.plotly_chart(fig_faltas, use_container_width=True)
-                else:
-                    st.info("Sem dados de ocorrências para gerar o gráfico de ausências.")
-
         elif menu == "🤖 Assistente IA (DP & Gestão)":
             st.subheader("🤖 Assistente de Inteligência Artificial — Tropical DP")
             st.caption("Tire dúvidas sobre legislação trabalhista (CLT), redação de e-mails, advertências, feedbacks ou orientações de gestão de equipe.")
-            
             if not ia_disponivel:
-                st.warning("⚠️ A chave da API do Gemini (GEMINI_API_KEY) não foi configurada nos Secrets do Streamlit. Configure para ativar o assistente completo.")
+                st.warning("⚠️ A chave da API do Gemini (GEMINI_API_KEY) não foi configurada nos Secrets do Streamlit.")
             else:
                 if "historico_chat" not in st.session_state:
                     st.session_state["historico_chat"] = []
@@ -751,15 +704,13 @@ if verificar_senha():
                         with st.spinner("Pensando..."):
                             try:
                                 contexto_base = f"Você é um especialista em Departamento Pessoal e Gestão de Equipes na Tropical Distribuidora. O usuário atual é {nome_usuario} ({perfil_usuario})."
-                                chat_sessao = modelo_ia.start_chat(history=[])
                                 prompt_completo = f"{contexto_base}\n\nPergunta/Solicitação: {pergunta_usuario}"
                                 resposta_ia = modelo_ia.generate_content(prompt_completo)
                                 resposta_txt = resposta_ia.text
                                 st.markdown(resposta_txt)
                                 st.session_state["historico_chat"].append({"role": "assistant", "content": resposta_txt})
                             except Exception as e:
-                                erro_msg = f"Desculpe, ocorreu um erro ao consultar a IA: {e}"
-                                st.error(erro_msg)
+                                st.error(f"Desculpe, ocorreu um erro ao consultar a IA: {e}")
 
         elif menu == "Chamada & Faltas do Dia":
             st.subheader(f"📌 Chamada Diária de Presença & Ocorrências - {setor_selecionado}")
@@ -772,33 +723,49 @@ if verificar_senha():
             if not df_pendencias.empty:
                 st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Ausências de dias anteriores que precisam de tratativa do DP.")
                 with st.expander("🚨 **Clique aqui para tratar e regularizar as pendências dos dias anteriores**", expanded=False):
-                    st.caption("Abaixo estão os colaboradores que não compareceram em dias anteriores e ficaram com ausência 'A Confirmar'. Classifique para zerar a pendência.")
+                    st.caption("Abaixo estão os colaboradores que não compareceram em dias anteriores. Classifique e defina ações disciplinares se aplicável.")
                     
                     for idx_p, r_pend in df_pendencias.iterrows():
-                        p_col1, p_col2, p_col3, p_col4 = st.columns([2, 1.5, 1.5, 1])
+                        p_col1, p_col2 = st.columns([2, 2])
                         with p_col1:
                             st.markdown(f"👤 **{r_pend['Funcionário']}**  \n📅 Data: `{r_pend['Data']}` | Setor: `{r_pend['Setor']}`")
-                        with p_col2:
                             novo_tipo = st.selectbox(
                                 "Nova Classificação", 
                                 ["Falta Injustificada", "Atestado Médico", "Folga Concedida", "Justificado (Remover Ocorrência)"], 
                                 key=f"sel_tipo_p_{idx_p}"
                             )
-                        with p_col3:
-                            novo_cid = st.text_input("CID (Se Atestado)", value="", key=f"cid_p_{idx_p}") if novo_tipo == "Atestado Médico" else "-"
-                        with p_col4:
-                            if st.button("💾 Resolver", key=f"btn_res_{idx_p}"):
-                                mask_orig = (df_faltas['Funcionário'] == r_pend['Funcionário']) & (df_faltas['Data'] == r_pend['Data'])
-                                if novo_tipo == "Justificado (Remover Ocorrência)":
-                                    df_faltas = df_faltas[~mask_orig].reset_index(drop=True)
-                                else:
-                                    df_faltas.loc[mask_orig, 'Tipo'] = novo_tipo
-                                    df_faltas.loc[mask_orig, 'CID'] = novo_cid.upper() if novo_cid else "-"
-                                    df_faltas.loc[mask_orig, 'Motivo'] = f"Tratado pelo DP em {hoje.strftime('%d/%m/%Y')}"
+                        with p_col2:
+                            if novo_tipo == "Atestado Médico":
+                                novo_cid = st.text_input("Código CID", value="", key=f"cid_p_{idx_p}")
+                            else:
+                                novo_cid = "-"
+                            
+                            # Checkboxes de Advertência e Suspensão solicitados
+                            gerar_adv = False
+                            gerar_susp = False
+                            if novo_tipo == "Falta Injustificada":
+                                st.markdown("##### ⚖️ Ações Disciplinares:")
+                                c_chk1, c_chk2 = st.columns(2)
+                                gerar_adv = c_chk1.checkbox("Aplicar Advertência?", value=False, key=f"adv_p_{idx_p}")
+                                gerar_susp = c_chk2.checkbox("Aplicar Suspensão?", value=False, key=f"susp_p_{idx_p}")
+
+                        if st.button("💾 Resolver Ocorrência", key=f"btn_res_{idx_p}"):
+                            mask_orig = (df_faltas['Funcionário'] == r_pend['Funcionário']) & (df_faltas['Data'] == r_pend['Data'])
+                            if novo_tipo == "Justificado (Remover Ocorrência)":
+                                df_faltas = df_faltas[~mask_orig].reset_index(drop=True)
+                            else:
+                                obs_disciplinar = []
+                                if gerar_adv: obs_disciplinar.append("Advertência Aplicada")
+                                if gerar_susp: obs_disciplinar.append("Suspensão Aplicada")
+                                txt_obs = f" | ".join(obs_disciplinar) if obs_disciplinar else "Tratado pelo DP"
                                 
-                                salvar_faltas(df_faltas)
-                                st.toast("✅ Ocorrência regularizada com sucesso!", icon="🎉")
-                                st.rerun()
+                                df_faltas.loc[mask_orig, 'Tipo'] = novo_tipo
+                                df_faltas.loc[mask_orig, 'CID'] = novo_cid.upper() if novo_cid else "-"
+                                df_faltas.loc[mask_orig, 'Motivo'] = f"Tratado em {hoje.strftime('%d/%m/%Y')} - {txt_obs}"
+                            
+                            salvar_faltas(df_faltas)
+                            st.toast("✅ Ocorrência regularizada com sucesso!", icon="🎉")
+                            st.rerun()
                     st.markdown("---")
 
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
@@ -823,7 +790,6 @@ if verificar_senha():
 
                     with st.form("form_chamada_diaria"):
                         st.markdown("---")
-                        
                         for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
                             val_pres_def = False
@@ -899,7 +865,6 @@ if verificar_senha():
                     
                     st.markdown("---")
                     st.markdown("##### 📲 Resumo Formatado para Envio via WhatsApp / Grupo de Trabalho:")
-                    
                     txt_wa = f"📊 *RESUMO DE PRESENÇA - TROPICAL DISTRIBUIDORA*\n"
                     txt_wa += f"📅 *Data:* {data_chamada.strftime('%d/%m/%Y')} | *Setor:* {setor_selecionado}\n"
                     txt_wa += f"🟢 *Presentes:* {qtd_p_ch} colaboradores\n"
@@ -913,7 +878,6 @@ if verificar_senha():
                             txt_wa += f"• {f_row['Funcionário']} ({f_row.get('Tipo', 'Ausência')}) - {f_row.get('Motivo', '-')}\n"
                     else:
                         txt_wa += "✨ *Turno com 100% de assiduidade!*\n"
-                        
                     st.code(txt_wa, language="markdown")
 
             with tab_avulso:
@@ -1038,11 +1002,16 @@ if verificar_senha():
             mes_sel_idx = st.selectbox("Selecione o Mês", range(1, 13), index=hoje.month - 1, format_func=lambda m: meses_nomes[m-1])
             if 'dt_nasc_dt' in df_filtrado.columns:
                 df_niver = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == mes_sel_idx].copy()
+                if not df_niver.empty:
+                    # Ordenação por dia do nascimento para identificar o próximo facil e cronologicamente
+                    df_niver['Dia_Nasc'] = df_niver['dt_nasc_dt'].dt.day
+                    df_niver = df_niver.sort_values(by='Dia_Nasc').drop(columns=['Dia_Nasc'])
                 st.dataframe(df_niver, use_container_width=True)
 
         elif menu == "Cadastrar / Editar Colaborador":
             st.subheader("👥 Gestão do Cadastro de Colaboradores")
             tab_cad, tab_edit_colab = st.tabs(["➕ Novo Colaborador", "✏️ Editar / Inativar Colaborador"])
+            
             with tab_cad:
                 with st.form("form_novo_colaborador", clear_on_submit=True):
                     st.markdown("##### 📝 Dados do Novo Colaborador")
@@ -1055,9 +1024,18 @@ if verificar_senha():
                     c_cargo = c_s2.text_input("Cargo:")
                     c_d1, c_d2, c_d3 = st.columns(3)
                     c_adm = c_d1.date_input("Data de Admissão:", value=hoje, format="DD/MM/YYYY")
-                    c_nasc = c_d2.date_input("Data de Nascimento:", value=date(1995, 1, 1), format="DD/MM/YYYY")
+                    
+                    # Calendário de Nascimento com intervalo expandido (desde 1950 até ano atual)
+                    c_nasc = c_d2.date_input(
+                        "Data de Nascimento:", 
+                        value=date(1995, 1, 1), 
+                        min_value=date(1950, 1, 1), 
+                        max_value=hoje, 
+                        format="DD/MM/YYYY"
+                    )
                     c_status = c_d3.selectbox("Status Inicial:", ["Ativo", "Férias", "Afastado", "Desligado"])
                     btn_salvar_colab = st.form_submit_button("💾 Salvar Colaborador")
+                    
                     if btn_salvar_colab and c_nome:
                         novo_c = {
                             "Matricula": str(c_mat).strip(),
@@ -1072,6 +1050,7 @@ if verificar_senha():
                         salvar_dados(df)
                         st.toast(f"✅ Colaborador '{c_nome}' cadastrado com sucesso!", icon="🎉")
                         st.rerun()
+
             with tab_edit_colab:
                 lista_colabs_cad = sorted(df['Funcionário'].dropna().unique())
                 colab_sel_edit = st.selectbox("Selecione o Colaborador para Alterar:", lista_colabs_cad)
@@ -1083,23 +1062,45 @@ if verificar_senha():
                         e_c1, e_c2 = st.columns(2)
                         e_mat = e_c1.text_input("Matrícula:", value=str(colab_row.get('Matricula', '')))
                         e_nome = e_c2.text_input("Nome Completo:", value=str(colab_row['Funcionário']))
+                        
                         e_s1, e_s2 = st.columns(2)
                         e_setor = e_s1.text_input("Setor:", value=str(colab_row.get('Setor', '')))
                         e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
-                        e_st1, e_st2 = st.columns(2)
+                        
+                        # Campo de Data de Admissão editável solicitado
+                        e_d1, e_d2, e_d3 = st.columns(3)
+                        val_adm_atual = colab_row.get('dt_adm') if pd.notnull(colab_row.get('dt_adm')) else hoje
+                        e_adm = e_d1.date_input("Data de Admissão:", value=val_adm_atual, format="DD/MM/YYYY")
+                        
                         opts_status = ["Ativo", "Férias", "Afastado", "Desligado"]
                         st_atual = colab_row.get('Status', 'Ativo')
                         idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
-                        e_status = e_st1.selectbox("Status Atual:", opts_status, index=idx_st)
-                        e_ult_ferias = e_st2.text_input("Últimas Férias (DD/MM/AAAA):", value=str(colab_row.get('Ultimas_Ferias', '')) if pd.notnull(colab_row.get('Ultimas_Ferias')) else "")
+                        e_status = e_d2.selectbox("Status Atual:", opts_status, index=idx_st)
+                        
+                        e_ult_ferias = e_d3.text_input("Últimas Férias (DD/MM/AAAA):", value=str(colab_row.get('Ultimas_Ferias', '')) if pd.notnull(colab_row.get('Ultimas_Ferias')) else "")
+                        
+                        # Caixa condicional para Data de Desligamento se o status for Desligado
+                        e_data_deslig = None
+                        if e_status == "Desligado":
+                            st.warning("⚠️ Você selecionou o status **Desligado**. Por favor, informe a data do desligamento abaixo:")
+                            val_deslig_atual = pd.to_datetime(colab_row.get('Data_Desligamento'), errors='coerce')
+                            val_deslig_def = val_deslig_atual.date() if pd.notnull(val_deslig_atual) else hoje
+                            e_data_deslig = st.date_input("Data do Desligamento:", value=val_deslig_def, format="DD/MM/YYYY")
+
                         btn_salvar_edit_c = st.form_submit_button("✏️ Atualizar Cadastro")
                         if btn_salvar_edit_c:
                             df.loc[idx_c, 'Matricula'] = str(e_mat).strip()
                             df.loc[idx_c, 'Funcionário'] = str(e_nome).strip()
                             df.loc[idx_c, 'Setor'] = str(e_setor).strip()
                             df.loc[idx_c, 'Cargo'] = str(e_cargo).strip()
+                            df.loc[idx_c, 'Admissão'] = e_adm.strftime('%d/%m/%Y')
                             df.loc[idx_c, 'Status'] = str(e_status)
                             df.loc[idx_c, 'Ultimas_Ferias'] = str(e_ult_ferias).strip() if e_ult_ferias.strip() else None
+                            if e_status == "Desligado" and e_data_deslig:
+                                df.loc[idx_c, 'Data_Desligamento'] = e_data_deslig.strftime('%d/%m/%Y')
+                            else:
+                                df.loc[idx_c, 'Data_Desligamento'] = None
+
                             salvar_dados(df)
                             st.toast("✅ Cadastro de colaborador atualizado!", icon="💾")
                             st.rerun()
