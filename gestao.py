@@ -140,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.4.5 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.4.6 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -184,8 +184,9 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
     except Exception as e:
         return False, str(e)
 
-# --- GERENCIAMENTO DE DADOS COM SUPABASE (PERSISTÊNCIA ROBUSTA) ---
+# --- GERENCIAMENTO DE DADOS COM SUPABASE (BLINDAGEM CONTRA ARQUIVO CORROMPIDO) ---
 def carregar_dados():
+    # 1. Tentar carregar do Supabase primeiro (Fonte Primária)
     if supabase_disponivel:
         try:
             response = supabase.table("colaboradores").select("*").execute()
@@ -230,45 +231,53 @@ def carregar_dados():
         except Exception:
             pass
 
-    if os.path.exists(ARQUIVO_DADOS):
-        df = pd.read_excel(ARQUIVO_DADOS)
-        df.columns = df.columns.str.strip()
-        
-        col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
-        col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
-        
-        df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
-        
-        if col_nasc in df.columns:
-            df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
-            df['dt_nasc'] = df['dt_nasc_dt'].dt.date
-        else:
-            df['dt_nasc_dt'] = pd.NaT
-            df['dt_nasc'] = None
-        
-        if 'Ultimas_Ferias' not in df.columns:
-            df['Ultimas_Ferias'] = None
-        else:
-            df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str).replace(['None', 'nan', 'NaT'], '')
-            df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
+    # 2. Se o Supabase falhar, tenta ler o Excel local com tratamento de erro de arquivo corrompido
+    if os.path.exists(ARQUIVO_DADOS) and os.path.getsize(ARQUIVO_DADOS) > 100:
+        try:
+            df = pd.read_excel(ARQUIVO_DADOS)
+            df.columns = df.columns.str.strip()
             
-        if 'Decisao_Experiencia' not in df.columns:
-            df['Decisao_Experiencia'] = None
-        if 'Status' not in df.columns:
-            df['Status'] = 'Ativo'
-        else:
-            df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
-        if 'Data_Desligamento' not in df.columns:
-            df['Data_Desligamento'] = None
-        else:
-            df['Data_Desligamento'] = df['Data_Desligamento'].astype(str).replace(['None', 'nan', 'NaT'], '')
-        if 'Matricula' in df.columns:
-            df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
+            col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
+            col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
+            
+            df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
+            
+            if col_nasc in df.columns:
+                df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
+                df['dt_nasc'] = df['dt_nasc_dt'].dt.date
+            else:
+                df['dt_nasc_dt'] = pd.NaT
+                df['dt_nasc'] = None
+            
+            if 'Ultimas_Ferias' not in df.columns:
+                df['Ultimas_Ferias'] = None
+            else:
+                df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str).replace(['None', 'nan', 'NaT'], '')
+                df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
+                
+            if 'Decisao_Experiencia' not in df.columns:
+                df['Decisao_Experiencia'] = None
+            if 'Status' not in df.columns:
+                df['Status'] = 'Ativo'
+            else:
+                df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
+            if 'Data_Desligamento' not in df.columns:
+                df['Data_Desligamento'] = None
+            else:
+                df['Data_Desligamento'] = df['Data_Desligamento'].astype(str).replace(['None', 'nan', 'NaT'], '')
+            if 'Matricula' in df.columns:
+                df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
 
-        return df
-    else:
-        st.error(f"Arquivo '{ARQUIVO_DADOS}' não encontrado na pasta atual!")
-        return pd.DataFrame()
+            return df
+        except Exception:
+            # Se o arquivo estiver corrompido, removemos ele para evitar loop de erro
+            try:
+                os.remove(ARQUIVO_DADOS)
+            except Exception:
+                pass
+
+    st.error(f"Arquivo '{ARQUIVO_DADOS}' corrompido ou ausente, e Supabase indisponível no momento.")
+    return pd.DataFrame()
 
 def salvar_dados(df_salvar):
     cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
@@ -277,7 +286,10 @@ def salvar_dados(df_salvar):
     if 'Matricula' in df_limpo.columns:
         df_limpo['Matricula'] = df_limpo['Matricula'].astype(str).str.replace('.0', '', regex=False)
     
-    df_limpo.to_excel(ARQUIVO_DADOS, index=False)
+    try:
+        df_limpo.to_excel(ARQUIVO_DADOS, index=False)
+    except Exception:
+        pass
     
     if supabase_disponivel:
         try:
@@ -308,29 +320,41 @@ def carregar_usuarios():
         except Exception:
             pass
 
-    if os.path.exists(ARQUIVO_USUARIOS):
-        df_u = pd.read_excel(ARQUIVO_USUARIOS)
-        df_u.columns = df_u.columns.str.strip()
-        for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos', 'Telefone']:
-            if col in df_u.columns:
-                df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
-            else:
-                df_u[col] = ""
-        if 'Modulos' not in df_u.columns or df_u['Modulos'].isnull().all():
-            df_u['Modulos'] = ",".join(TODOS_MODULOS)
-        return df_u
-    else:
-        dados_iniciais = [
-            {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,🤖 Assistente IA (DP & Gestão),Chamada & Faltas do Dia,🦺 Solicitação & Entrega de EPI,👤 Ficha Individual do Colaborador", "Telefone": ""}
-        ]
-        df_u = pd.DataFrame(dados_iniciais)
+    if os.path.exists(ARQUIVO_USUARIOS) and os.path.getsize(ARQUIVO_USUARIOS) > 100:
+        try:
+            df_u = pd.read_excel(ARQUIVO_USUARIOS)
+            df_u.columns = df_u.columns.str.strip()
+            for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos', 'Telefone']:
+                if col in df_u.columns:
+                    df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
+                else:
+                    df_u[col] = ""
+            if 'Modulos' not in df_u.columns or df_u['Modulos'].isnull().all():
+                df_u['Modulos'] = ",".join(TODOS_MODULOS)
+            return df_u
+        except Exception:
+            try:
+                os.remove(ARQUIVO_USUARIOS)
+            except Exception:
+                pass
+
+    dados_iniciais = [
+        {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
+        {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,🤖 Assistente IA (DP & Gestão),Chamada & Faltas do Dia,🦺 Solicitação & Entrega de EPI,👤 Ficha Individual do Colaborador", "Telefone": ""}
+    ]
+    df_u = pd.DataFrame(dados_iniciais)
+    try:
         df_u.to_excel(ARQUIVO_USUARIOS, index=False)
-        return df_u
+    except Exception:
+        pass
+    return df_u
 
 def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
-    df_u.to_excel(ARQUIVO_USUARIOS, index=False)
+    try:
+        df_u.to_excel(ARQUIVO_USUARIOS, index=False)
+    except Exception:
+        pass
     if supabase_disponivel:
         try:
             supabase.table("usuarios").delete().neq("id", 0).execute()
@@ -355,17 +379,25 @@ def carregar_faltas():
         except Exception:
             pass
 
-    if os.path.exists(ARQUIVO_FALTAS):
-        df_f = pd.read_excel(ARQUIVO_FALTAS)
-        df_f.columns = df_f.columns.str.strip()
-        df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
-        return df_f
-    else:
-        return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"])
+    if os.path.exists(ARQUIVO_FALTAS) and os.path.getsize(ARQUIVO_FALTAS) > 100:
+        try:
+            df_f = pd.read_excel(ARQUIVO_FALTAS)
+            df_f.columns = df_f.columns.str.strip()
+            df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
+            return df_f
+        except Exception:
+            try:
+                os.remove(ARQUIVO_FALTAS)
+            except Exception:
+                pass
+    return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"])
 
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
-    df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
+    try:
+        df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
+    except Exception:
+        pass
     if supabase_disponivel:
         try:
             supabase.table("faltas").delete().neq("id", 0).execute()
@@ -389,15 +421,23 @@ def carregar_epis():
         except Exception:
             pass
 
-    if os.path.exists(ARQUIVO_EPIS):
-        df_e = pd.read_excel(ARQUIVO_EPIS)
-        df_e.columns = df_e.columns.str.strip()
-        return df_e
-    else:
-        return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "EPI", "Detalhe_Tamanho", "Responsavel"])
+    if os.path.exists(ARQUIVO_EPIS) and os.path.getsize(ARQUIVO_EPIS) > 100:
+        try:
+            df_e = pd.read_excel(ARQUIVO_EPIS)
+            df_e.columns = df_e.columns.str.strip()
+            return df_e
+        except Exception:
+            try:
+                os.remove(ARQUIVO_EPIS)
+            except Exception:
+                pass
+    return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "EPI", "Detalhe_Tamanho", "Responsavel"])
 
 def salvar_epis(df_e):
-    df_e.to_excel(ARQUIVO_EPIS, index=False)
+    try:
+        df_e.to_excel(ARQUIVO_EPIS, index=False)
+    except Exception:
+        pass
     if supabase_disponivel:
         try:
             supabase.table("epi_entregas").delete().neq("id", 0).execute()
@@ -421,12 +461,17 @@ def carregar_historico():
         except Exception:
             pass
 
-    if os.path.exists(ARQUIVO_HISTORICO):
-        df_h = pd.read_excel(ARQUIVO_HISTORICO)
-        df_h.columns = df_h.columns.str.strip()
-        return df_h
-    else:
-        return pd.DataFrame(columns=["Matricula", "Funcionário", "Data", "Tipo_Evento", "Descricao", "Autor"])
+    if os.path.exists(ARQUIVO_HISTORICO) and os.path.getsize(ARQUIVO_HISTORICO) > 100:
+        try:
+            df_h = pd.read_excel(ARQUIVO_HISTORICO)
+            df_h.columns = df_h.columns.str.strip()
+            return df_h
+        except Exception:
+            try:
+                os.remove(ARQUIVO_HISTORICO)
+            except Exception:
+                pass
+    return pd.DataFrame(columns=["Matricula", "Funcionário", "Data", "Tipo_Evento", "Descricao", "Autor"])
 
 def registrar_historico(matricula, funcionario, tipo_evento, descricao, autor):
     df_h = carregar_historico()
@@ -439,7 +484,10 @@ def registrar_historico(matricula, funcionario, tipo_evento, descricao, autor):
         "Autor": str(autor)
     }
     df_h = pd.concat([df_h, pd.DataFrame([novo_reg])], ignore_index=True)
-    df_h.to_excel(ARQUIVO_HISTORICO, index=False)
+    try:
+        df_h.to_excel(ARQUIVO_HISTORICO, index=False)
+    except Exception:
+        pass
     if supabase_disponivel:
         try:
             supabase.table("historico_colaboradores").insert(novo_reg).execute()
@@ -555,7 +603,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.5**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.6**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -622,7 +670,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.5 (Correção Definitiva de Salvamento & Aniversariantes)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.6 (Blindagem contra Erro de Arquivo)**")
     st.divider()
 
     if not df.empty:
@@ -703,28 +751,28 @@ if verificar_senha():
 
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Quadro", len(df_filtrado))
-            if c1.button("🔍 Ver Quadro", key="btn_quadro_v15"):
+            if c1.button("🔍 Ver Quadro", key="btn_quadro_v16"):
                 exibir_modal_detalhes("Quadro Geral de Colaboradores", df_filtrado[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão', 'Data_Desligamento'] if c in df_filtrado.columns]])
             
             c2.metric("Ativos", len(df_ativos))
-            if c2.button("🔍 Ver Ativos", key="btn_ativos_v15"):
+            if c2.button("🔍 Ver Ativos", key="btn_ativos_v16"):
                 exibir_modal_detalhes("Colaboradores Ativos no Quadro", df_ativos[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos.columns]])
 
             c3.metric("Em Férias", len(df_ferias_st))
-            if c3.button("🔍 Ver Férias", key="btn_ferias_v15"):
+            if c3.button("🔍 Ver Férias", key="btn_ferias_v16"):
                 exibir_modal_detalhes("Colaboradores em Gozo de Férias", df_ferias_st[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias', 'Status'] if c in df_ferias_st.columns]])
 
             c4.metric("Atest./Afast./INSS", len(df_afastados))
-            if c4.button("🔍 Ver Afastados", key="btn_afastados_v15"):
+            if c4.button("🔍 Ver Afastados", key="btn_afastados_v16"):
                 exibir_modal_detalhes("Colaboradores Afastados / Atestado / INSS", df_afastados[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status'] if c in df_afastados.columns]])
 
             c5.metric("Faltas Hoje", qtd_faltantes_hoje)
-            if c5.button("🔍 Ver Faltas", key="btn_faltas_v15"):
+            if c5.button("🔍 Ver Faltas", key="btn_faltas_v16"):
                 exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
 
             niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
             c6.metric("Aniversariantes", len(niver_mes))
-            if c6.button("🔍 Ver Aniversár.", key="btn_niver_v15"):
+            if c6.button("🔍 Ver Aniversár.", key="btn_niver_v16"):
                 if not niver_mes.empty:
                     df_niver_show = niver_mes.copy()
                     df_niver_show['Dia'] = df_niver_show['dt_nasc_dt'].dt.day
@@ -772,7 +820,7 @@ if verificar_senha():
                 if colabs_operacionais.empty:
                     st.warning("Nenhum colaborador operacional ativo.")
                 else:
-                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v15")
+                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v16")
                     data_chamada = pd.to_datetime(data_chamada_txt, dayfirst=True, errors='coerce').date() or hoje
                     
                     faltas_existentes = df_faltas[(df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado)] if not df_faltas.empty else pd.DataFrame()
@@ -978,7 +1026,7 @@ if verificar_senha():
 
             with t_ed:
                 colabs_e = sorted(df['Funcionário'].dropna().unique())
-                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v15")
+                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v16")
                 if sel_e:
                     idx_el = df[df['Funcionário'] == sel_e].index[0]
                     row_e = df.loc[idx_el]
@@ -1002,7 +1050,7 @@ if verificar_senha():
                             st_at_idx = idx_opt
                             break
                             
-                    est = ed2.selectbox("Status:", opts_st, index=st_at_idx, key="sb_status_desligamento_v15")
+                    est = ed2.selectbox("Status:", opts_st, index=st_at_idx, key="sb_status_desligamento_v16")
                     
                     val_uf_atual = row_e.get('Ultimas_Ferias')
                     val_uf_str = str(val_uf_atual) if pd.notnull(val_uf_atual) and str(val_uf_atual) not in ['nan', 'None', ''] else ""
@@ -1013,7 +1061,7 @@ if verificar_senha():
                         st.warning("⚠️ Informe a data do desligamento abaixo:")
                         vd_at = row_e.get('Data_Desligamento')
                         vd_str = str(vd_at) if pd.notnull(vd_at) and str(vd_at) not in ['nan', 'None', ''] else hoje.strftime('%d/%m/%Y')
-                        ddes_txt = st.text_input("Data Desligamento (DD/MM/AAAA):", value=vd_str, key="txt_data_deslig_v15")
+                        ddes_txt = st.text_input("Data Desligamento (DD/MM/AAAA):", value=vd_str, key="txt_data_deslig_v16")
 
                     if st.button("Atualizar Colaborador"):
                         dt_adm_parsed = pd.to_datetime(ead_txt, dayfirst=True, errors='coerce').date() or hoje
@@ -1063,7 +1111,7 @@ if verificar_senha():
                     cm = st.columns(2)
                     for i_m, mn in enumerate(TODOS_MODULOS):
                         with cm[i_m % 2]:
-                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v15"):
+                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v16"):
                                 mods_s.append(mn)
                     if st.form_submit_button("Criar Usuário") and nn and nl and ns:
                         if nl in df_usuarios['Usuario'].astype(str).str.lower().values:
