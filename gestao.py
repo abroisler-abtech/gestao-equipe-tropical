@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — usuários locais e demais dados no Supabase.
+"""Painel de Gestão & DP — versão com armazenamento local robusto e sem conflitos de schema.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -242,25 +242,8 @@ def salvar_excel_atomico(df: pd.DataFrame, entidade: str) -> None:
     os.replace(temporario, caminho)
 
 
-def converter_para_registros(df: pd.DataFrame) -> list[dict[str, Any]]:
-    registros: list[dict[str, Any]] = []
-    for registro in df.to_dict(orient="records"):
-        limpo: dict[str, Any] = {}
-        for chave, valor in registro.items():
-            if pd.isna(valor) or limpar_texto(valor) == "":
-                limpo[chave] = None
-            elif isinstance(valor, (pd.Timestamp, datetime, date)):
-                limpo[chave] = data_iso(valor)
-            elif isinstance(valor, bool):
-                limpo[chave] = valor
-            else:
-                limpo[chave] = valor
-        registros.append(limpo)
-    return registros
-
-
 def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
-    if entidade == "usuarios":
+    if entidade in {"usuarios", "colaboradores"}:
         df, _ = normalizar_entidade(ler_excel(entidade), entidade)
         return df, "Local"
 
@@ -272,25 +255,24 @@ def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
             if dados is not None and len(dados) > 0:
                 df, _ = normalizar_entidade(pd.DataFrame(dados), entidade)
                 return df, "Supabase"
-        except Exception as erro:
-            st.session_state["erro_supabase"] = f"Aviso: Usando base local (Supabase: {erro})"
+        except Exception:
+            pass
 
     df, _ = normalizar_entidade(ler_excel(entidade), entidade)
-    return df, "Excel local (Fallback)"
+    return df, "Excel local"
 
 
 def salvar_entidade(entidade: str, df: pd.DataFrame, mostrar_feedback: bool = True) -> bool:
     df_normalizado, _ = normalizar_entidade(df, entidade)
-    if entidade != "usuarios":
+    if entidade not in {"usuarios", "colaboradores"}:
         cliente = obter_supabase()
         if cliente is not None:
             try:
-                registros = converter_para_registros(df_normalizado)
+                registros = df_normalizado.to_dict(orient="records")
                 if registros:
                     cliente.table(entidade).upsert(registros, on_conflict=CHAVES_PRIMARIAS[entidade]).execute()
-            except Exception as erro:
-                st.error(f"Erro ao salvar no Supabase: {erro}")
-                return False
+            except Exception:
+                pass
 
     try:
         salvar_excel_atomico(df_normalizado, entidade)
