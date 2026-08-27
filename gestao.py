@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — versão corrigida sem a coluna ativo.
+"""Painel de Gestão & DP — versão final sem colunas ausentes no Supabase.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -53,7 +53,7 @@ COLUNAS: dict[str, list[str]] = {
         "status", "ultimas_ferias", "data_retorno_ferias", "decisao_experiencia",
         "data_desligamento",
     ],
-    "usuarios": ["usuario", "nome", "email", "senha_hash", "perfil", "modulos", "telefone"],
+    "usuarios": ["usuario", "nome", "senha_hash", "perfil", "modulos"],
     "faltas": [
         "registro_id", "matricula", "funcionario", "setor", "data", "tipo", "dias",
         "cid", "motivo", "origem",
@@ -104,8 +104,7 @@ ALIAS_COLUNAS = {
     },
     "usuarios": {
         "usuario": "usuario", "usuário": "usuario", "login": "usuario", "nome": "nome",
-        "email": "email", "e_mail": "email", "senha_hash": "senha_hash", "senha": "senha_legada",
-        "perfil": "perfil", "modulos": "modulos", "módulos": "modulos", "telefone": "telefone",
+        "senha_hash": "senha_hash", "senha": "senha_legada", "perfil": "perfil", "modulos": "modulos", "módulos": "modulos",
     },
     "faltas": {
         "registro_id": "registro_id", "matricula": "matricula", "matrícula": "matricula",
@@ -242,10 +241,9 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
                 if not limpar_texto(df.at[indice, "senha_hash"]) and limpar_texto(senha_legada):
                     df.at[indice, "senha_hash"] = hash_senha(limpar_texto(senha_legada))
                     migrou_senha = True
-        for coluna in ("usuario", "nome", "email", "senha_hash", "perfil", "modulos", "telefone"):
+        for coluna in ("usuario", "nome", "senha_hash", "perfil", "modulos"):
             df[coluna] = df[coluna].map(limpar_texto)
         df["usuario"] = df["usuario"].str.lower()
-        df["email"] = df["email"].str.lower()
         df["perfil"] = df["perfil"].replace("", "Gestor")
 
     elif entidade in {"faltas", "epis", "historico"}:
@@ -370,9 +368,8 @@ def provisionar_admin_automatico(usuarios: pd.DataFrame) -> pd.DataFrame:
     if not usuarios.empty:
         return usuarios
     novo = pd.DataFrame([{
-        "usuario": "admin", "nome": "Administrador", "email": "abroisler@gmail.com",
+        "usuario": "admin", "nome": "Administrador",
         "senha_hash": hash_senha("030711"), "perfil": "Admin", "modulos": ",".join(TODOS_MODULOS),
-        "telefone": "",
     }])
     salvar_entidade("usuarios", novo, False)
     return novo
@@ -384,12 +381,12 @@ def tela_login() -> bool:
         return True
 
     st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-    st.caption("Use sua conta ou entre com admin / 030711.")
+    st.caption("Entre com usuário: admin / senha: 030711")
     usuarios, _ = carregar_entidade("usuarios")
     usuarios = provisionar_admin_automatico(usuarios)
 
     with st.form("form_login"):
-        identificador = st.text_input("E-mail ou usuário").strip().lower()
+        identificador = st.text_input("Usuário").strip().lower()
         senha = st.text_input("Senha", type="password")
         enviar = st.form_submit_button("Entrar")
 
@@ -397,10 +394,10 @@ def tela_login() -> bool:
         if st.session_state["tentativas_login"] >= 5:
             st.error("Muitas tentativas nesta sessão. Atualize a página.")
             return False
-        candidato = usuarios[(usuarios["usuario"] == identificador) | (usuarios["email"] == identificador)]
+        candidato = usuarios[usuarios["usuario"] == identificador]
         if candidato.empty or not verificar_senha(senha, candidato.iloc[0]["senha_hash"]):
             st.session_state["tentativas_login"] += 1
-            st.error("E-mail/usuário ou senha incorretos.")
+            st.error("Usuário ou senha incorretos.")
             return False
 
         registro = candidato.iloc[0]
@@ -454,7 +451,7 @@ def filtrar_setor(df: pd.DataFrame, setor: str) -> pd.DataFrame:
 def tabela_exibicao(df: pd.DataFrame, campos: list[str]) -> pd.DataFrame:
     rotulos = {
         "matricula": "Matrícula", "funcionario": "Funcionário", "setor": "Setor", "cargo": "Cargo",
-        "nome": "Nome", "usuario": "Usuário", "email": "E-mail", "perfil": "Perfil", "telefone": "Telefone",
+        "nome": "Nome", "usuario": "Usuário", "perfil": "Perfil",
         "admissao": "Admissão", "nascimento": "Nascimento", "status": "Status", "ultimas_ferias": "Últimas férias",
         "data_retorno_ferias": "Retorno das férias", "data": "Data", "tipo": "Tipo", "dias": "Dias",
         "cid": "CID", "motivo": "Motivo", "origem": "Origem", "epi": "EPI", "detalhe_tamanho": "Detalhe/Tamanho",
@@ -839,28 +836,24 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
             c1, c2 = st.columns(2)
             nome = c1.text_input("Nome").strip()
             usuario = c2.text_input("Login", help="Será convertido para letras minúsculas.").strip().lower()
-            c3, c4 = st.columns(2)
-            email = c3.text_input("E-mail").strip().lower()
-            senha = c4.text_input("Senha inicial", type="password")
-            telefone = st.text_input("Telefone (opcional)").strip()
+            senha = st.text_input("Senha inicial", type="password")
             perfil = st.selectbox("Perfil", ("Gestor", "Admin"))
             modulos = st.multiselect("Módulos liberados", TODOS_MODULOS, default=list(TODOS_MODULOS) if perfil == "Admin" else ["Dashboard & Alertas", "Chamada & Faltas do Dia"])
             if st.form_submit_button("Criar usuário"):
-                if not nome or not usuario or not email or not senha:
-                    st.error("Nome, login, e-mail e senha são obrigatórios.")
-                elif (usuarios["usuario"] == usuario).any() or (usuarios["email"] == email).any():
-                    st.error("Já existe um usuário com este login ou e-mail.")
+                if not nome or not usuario or not senha:
+                    st.error("Nome, login e senha são obrigatórios.")
+                elif (usuarios["usuario"] == usuario).any():
+                    st.error("Já existe um usuário com este login.")
                 else:
                     novo = {
-                        "usuario": usuario, "nome": nome, "email": email, "senha_hash": hash_senha(senha),
+                        "usuario": usuario, "nome": nome, "senha_hash": hash_senha(senha),
                         "perfil": perfil, "modulos": ",".join(TODOS_MODULOS if perfil == "Admin" else modulos),
-                        "telefone": telefone,
                     }
                     if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
                         st.success("Usuário criado com sucesso!")
                         st.rerun()
     with aba_lista:
-        st.dataframe(tabela_exibicao(usuarios, ["nome", "usuario", "email", "perfil", "telefone"]), use_container_width=True, hide_index=True)
+        st.dataframe(tabela_exibicao(usuarios, ["nome", "usuario", "perfil"]), use_container_width=True, hide_index=True)
 
 
 def tela_importacao(colaboradores: pd.DataFrame) -> None:
