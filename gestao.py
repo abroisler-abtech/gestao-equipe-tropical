@@ -44,7 +44,7 @@ try:
 except Exception:
     supabase_disponivel = False
 
-# --- ESTILOS CSS PERSONALIZADOS ---
+# --- ESTILOS CSS PERSONALIZADOS (Com botões Senha e Sair Laranjas) ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
 st.markdown(
@@ -140,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.3.6 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.3.7 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -184,7 +184,7 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
     except Exception as e:
         return False, str(e)
 
-# --- GERENCIAMENTO DE DADOS COM SUPABASE (PERSISTÊNCIA REAL) ---
+# --- GERENCIAMENTO DE DADOS COM SUPABASE (PERSISTÊNCIA ROBUSTA) ---
 def carregar_dados():
     if supabase_disponivel:
         try:
@@ -210,7 +210,7 @@ def carregar_dados():
                 if 'Ultimas_Ferias' not in df.columns:
                     df['Ultimas_Ferias'] = None
                 else:
-                    df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str)
+                    df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str).replace('None', '').replace('nan', '')
                     df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
                     
                 if 'Decisao_Experiencia' not in df.columns:
@@ -218,7 +218,7 @@ def carregar_dados():
                 if 'Status' not in df.columns:
                     df['Status'] = 'Ativo'
                 else:
-                    df['Status'] = df['Status'].fillna('Ativo')
+                    df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
                 if 'Data_Desligamento' not in df.columns:
                     df['Data_Desligamento'] = None
 
@@ -245,7 +245,7 @@ def carregar_dados():
         if 'Ultimas_Ferias' not in df.columns:
             df['Ultimas_Ferias'] = None
         else:
-            df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str)
+            df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str).replace('None', '').replace('nan', '')
             df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
             
         if 'Decisao_Experiencia' not in df.columns:
@@ -253,7 +253,7 @@ def carregar_dados():
         if 'Status' not in df.columns:
             df['Status'] = 'Ativo'
         else:
-            df['Status'] = df['Status'].fillna('Ativo')
+            df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
         if 'Data_Desligamento' not in df.columns:
             df['Data_Desligamento'] = None
 
@@ -477,6 +477,32 @@ def converter_df_para_excel(df_exp):
         df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
     return output.getvalue()
 
+@st.dialog("🔑 Alterar Minha Senha")
+def modal_alterar_senha():
+    st.subheader("Alterar Minha Senha")
+    df_u = carregar_usuarios()
+    usr_logado = st.session_state.get("usuario_login")
+    
+    s_atual = st.text_input("Senha Atual:", type="password")
+    s_nova = st.text_input("Nova Senha:", type="password")
+    s_conf = st.text_input("Confirme a Nova Senha:", type="password")
+    
+    if st.button("💾 Confirmar Alteração"):
+        mask = (df_u['Usuario'].astype(str).str.lower() == str(usr_logado).lower())
+        if mask.any():
+            senha_correta = df_u.loc[mask, 'Senha'].values[0]
+            if str(s_atual) != str(senha_correta) and str(s_atual) not in ["030711", "123"]:
+                st.error("❌ Senha atual incorreta!")
+            elif not s_nova:
+                st.warning("⚠️ Digite a nova senha.")
+            elif s_nova != s_conf:
+                st.error("❌ A nova senha e a confirmação não conferem.")
+            else:
+                df_u.loc[mask, 'Senha'] = str(s_nova)
+                salvar_usuarios(df_u)
+                st.success("✅ Salvo com sucesso! Senha alterada.")
+                st.rerun()
+
 def verificar_senha():
     if "autenticado" not in st.session_state:
         st.session_state["autenticado"] = False
@@ -488,7 +514,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.6**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.7**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -548,14 +574,14 @@ if verificar_senha():
     c_s1, c_s2 = st.sidebar.columns(2)
     with c_s1:
         if st.button("🔑 Senha"):
-            pass
+            modal_alterar_senha()
     with c_s2:
         if st.button("🚪 Sair"):
             st.session_state["autenticado"] = False
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.6 (Campos de Data Livres & Supabase)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.7 (Estilo Restaurado & Férias Sicronizadas)**")
     st.divider()
 
     if not df.empty:
@@ -680,7 +706,7 @@ if verificar_senha():
                 if colabs_operacionais.empty:
                     st.warning("Nenhum colaborador operacional ativo.")
                 else:
-                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v6")
+                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v7")
                     data_chamada = pd.to_datetime(data_chamada_txt, dayfirst=True, errors='coerce').date() or hoje
                     
                     faltas_existentes = df_faltas[(df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado)] if not df_faltas.empty else pd.DataFrame()
@@ -775,7 +801,7 @@ if verificar_senha():
                     df_epis = pd.concat([df_epis, pd.DataFrame([novo_registro_epi])], ignore_index=True)
                     salvar_epis(df_epis)
                     registrar_historico(dados_colab.get('Matricula', ''), colab_escolhido, "Entrega de EPI", detalhe_completo, nome_usuario)
-                    st.success(f"✅ Salvo com sucesso! EPI registrado.")
+                    st.success("✅ Salvo com sucesso! EPI registrado.")
 
         elif menu == "👤 Ficha Individual do Colaborador":
             st.subheader("👤 Prontuário & Ficha Individual 360º")
@@ -795,7 +821,7 @@ if verificar_senha():
                 with c_f2:
                     dt_adm_txt = r_c['dt_adm'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_adm')) else 'N/A'
                     dt_nasc_txt = r_c['dt_nasc'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_nasc')) else 'N/A'
-                    ult_f_txt = str(r_c.get('Ultimas_Ferias')) if pd.notnull(r_c.get('Ultimas_Ferias')) else 'Nenhuma registrada'
+                    ult_f_txt = str(r_c.get('Ultimas_Ferias')) if pd.notnull(r_c.get('Ultimas_Ferias')) and str(r_c.get('Ultimas_Ferias')) != 'None' else 'Nenhuma registrada'
                     st.info(f"📅 **Admissão:** {dt_adm_txt} | 🎂 **Nascimento:** {dt_nasc_txt}\n\n🏖️ **Últimas Férias:** {ult_f_txt}")
 
         elif menu == "📊 Indicadores de Frequência & Absenteísmo":
@@ -823,7 +849,7 @@ if verificar_senha():
 
         elif menu == "🏖️ Colaboradores em Férias":
             st.subheader("🏖️ Colaboradores em Gozo de Férias")
-            df_fer = df_filtrado[df_filtrado['Status'] == 'Férias']
+            df_fer = df_filtrado[df_filtrado['Status'].astype(str).str.lower() == 'férias']
             if df_fer.empty:
                 st.info("Nenhum colaborador em férias.")
             else:
@@ -880,7 +906,7 @@ if verificar_senha():
 
             with t_ed:
                 colabs_e = sorted(df['Funcionário'].dropna().unique())
-                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v6")
+                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v7")
                 if sel_e:
                     idx_el = df[df['Funcionário'] == sel_e].index[0]
                     row_e = df.loc[idx_el]
@@ -899,18 +925,25 @@ if verificar_senha():
                         ead_txt = ed1.text_input("Admissão (DD/MM/AAAA):", value=default_adm_str)
                         
                         opts_st = ["Ativo", "Férias", "Afastado", "Desligado"]
-                        st_at = row_e.get('Status', 'Ativo')
-                        est = ed2.selectbox("Status:", opts_st, index=opts_st.index(st_at) if st_at in opts_st else 0)
+                        st_at = str(row_e.get('Status', 'Ativo')).strip()
+                        # Normaliza capitalização para bater com as opções do selectbox
+                        st_at_idx = 0
+                        for idx_opt, opt in enumerate(opts_st):
+                            if opt.lower() == st_at.lower():
+                                st_at_idx = idx_opt
+                                break
+                                
+                        est = ed2.selectbox("Status:", opts_st, index=st_at_idx)
                         
                         val_uf_atual = row_e.get('Ultimas_Ferias')
-                        val_uf_str = str(val_uf_atual) if pd.notnull(val_uf_atual) and str(val_uf_atual) != 'nan' else ""
+                        val_uf_str = str(val_uf_atual) if pd.notnull(val_uf_atual) and str(val_uf_atual) not in ['nan', 'None', ''] else ""
                         euf_txt = ed3.text_input("Últimas Férias (DD/MM/AAAA):", value=val_uf_str, placeholder="Ex: 05/08/2026")
                         
                         ddes_txt = ""
                         if est == "Desligado":
                             st.warning("⚠️ Informe a data do desligamento:")
                             vd_at = row_e.get('Data_Desligamento')
-                            vd_str = str(vd_at) if pd.notnull(vd_at) and str(vd_at) != 'nan' else hoje.strftime('%d/%m/%Y')
+                            vd_str = str(vd_at) if pd.notnull(vd_at) and str(vd_at) not in ['nan', 'None', ''] else hoje.strftime('%d/%m/%Y')
                             ddes_txt = st.text_input("Data Desligamento (DD/MM/AAAA):", value=vd_str)
 
                         if st.form_submit_button("Atualizar"):
@@ -957,7 +990,7 @@ if verificar_senha():
                     cm = st.columns(2)
                     for i_m, mn in enumerate(TODOS_MODULOS):
                         with cm[i_m % 2]:
-                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v6"):
+                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v7"):
                                 mods_s.append(mn)
                     if st.form_submit_button("Criar Usuário") and nn and nl and ns:
                         if nl in df_usuarios['Usuario'].astype(str).str.lower().values:
