@@ -1,25 +1,20 @@
-"""Painel de Gestão & DP — versão 100% compatível com tabela mínima do Supabase.
+"""Painel de Gestão & DP — versão final com senha simples compatível com o Supabase.
 
 Execute com: streamlit run gestao_corrigido.py
 """
 
 from __future__ import annotations
 
-import base64
-import binascii
-import hashlib
-import hmac
 import io
 import os
 import re
-import secrets
 import shutil
 import unicodedata
 import uuid
 from datetime import date, datetime, timedelta
 from html import escape
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
@@ -53,7 +48,7 @@ COLUNAS: dict[str, list[str]] = {
         "status", "ultimas_ferias", "data_retorno_ferias", "decisao_experiencia",
         "data_desligamento",
     ],
-    "usuarios": ["usuario", "senha_hash"],
+    "usuarios": ["usuario", "senha"],
     "faltas": [
         "registro_id", "matricula", "funcionario", "setor", "data", "tipo", "dias",
         "cid", "motivo", "origem",
@@ -89,7 +84,6 @@ TODOS_MODULOS = (
 )
 
 MODULOS_ADMIN = {"Criar / Gerenciar Usuários", "Importar Nova Base"}
-PBKDF2_ITERACOES = 600_000
 
 ALIAS_COLUNAS = {
     "colaboradores": {
@@ -104,7 +98,7 @@ ALIAS_COLUNAS = {
     },
     "usuarios": {
         "usuario": "usuario", "usuário": "usuario", "login": "usuario",
-        "senha_hash": "senha_hash", "senha": "senha_legada",
+        "senha": "senha", "password": "senha",
     },
     "faltas": {
         "registro_id": "registro_id", "matricula": "matricula", "matrícula": "matricula",
@@ -169,31 +163,6 @@ def formatar_data(valor: object) -> str:
     return convertido.strftime("%d/%m/%Y") if convertido else "—"
 
 
-def hash_senha(senha: str) -> str:
-    if not senha:
-        raise ValueError("A senha não pode ficar vazia.")
-    salt = secrets.token_bytes(16)
-    derivada = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), salt, PBKDF2_ITERACOES)
-    return "pbkdf2_sha256${}${}${}".format(
-        PBKDF2_ITERACOES,
-        base64.urlsafe_b64encode(salt).decode("ascii"),
-        base64.urlsafe_b64encode(derivada).decode("ascii"),
-    )
-
-
-def verificar_senha(senha: str, senha_hash: str) -> bool:
-    try:
-        algoritmo, iteracoes, salt_b64, digest_b64 = senha_hash.split("$", 3)
-        if algoritmo != "pbkdf2_sha256":
-            return False
-        derivada = hashlib.pbkdf2_hmac(
-            "sha256", senha.encode("utf-8"), base64.urlsafe_b64decode(salt_b64), int(iteracoes)
-        )
-        return hmac.compare_digest(base64.urlsafe_b64encode(derivada).decode("ascii"), digest_b64)
-    except (ValueError, TypeError, binascii.Error):
-        return False
-
-
 @st.cache_resource(show_spinner=False)
 def obter_supabase() -> Optional[Client]:
     url = segredo("SUPABASE_URL")
@@ -216,7 +185,6 @@ def renomear_colunas(df: pd.DataFrame, entidade: str) -> pd.DataFrame:
 
 def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, bool]:
     df = renomear_colunas(df, entidade)
-    migrou_senha = False
 
     for coluna in COLUNAS[entidade]:
         if coluna not in df.columns:
@@ -236,12 +204,7 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
             df[coluna] = df[coluna].map(data_iso)
 
     elif entidade == "usuarios":
-        if "senha_legada" in df.columns:
-            for indice, senha_legada in df["senha_legada"].items():
-                if not limpar_texto(df.at[indice, "senha_hash"]) and limpar_texto(senha_legada):
-                    df.at[indice, "senha_hash"] = hash_senha(limpar_texto(senha_legada))
-                    migrou_senha = True
-        for coluna in ("usuario", "senha_hash"):
+        for coluna in ("usuario", "senha"):
             df[coluna] = df[coluna].map(limpar_texto)
         df["usuario"] = df["usuario"].str.lower()
 
@@ -258,7 +221,7 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
             df["dias"] = pd.to_numeric(df["dias"], errors="coerce").fillna(0).astype(int)
             df["origem"] = df["origem"].replace("", "Avulso")
 
-    return df[COLUNAS[entidade]].copy(), migrou_senha
+    return df[COLUNAS[entidade]].copy(), False
 
 
 def ler_excel(entidade: str) -> pd.DataFrame:
@@ -309,16 +272,12 @@ def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
             resposta = cliente.table(entidade).select("*").execute()
             dados = getattr(resposta, "data", None)
             if dados is not None and len(dados) > 0:
-                df, migrou_senha = normalizar_entidade(pd.DataFrame(dados), entidade)
-                if migrou_senha:
-                    salvar_entidade(entidade, df, mostrar_feedback=False)
+                df, _ = normalizar_entidade(pd.DataFrame(dados), entidade)
                 return df, "Supabase"
         except Exception as erro:
             st.session_state["erro_supabase"] = f"Aviso: Usando base local (Supabase: {erro})"
 
-    df, migrou_senha = normalizar_entidade(ler_excel(entidade), entidade)
-    if migrou_senha:
-        salvar_excel_atomico(df, entidade)
+    df, _ = normalizar_entidade(ler_excel(entidade), entidade)
     return df, "Excel local (Fallback)"
 
 
@@ -368,7 +327,7 @@ def provisionar_admin_automatico(usuarios: pd.DataFrame) -> pd.DataFrame:
         return usuarios
     novo = pd.DataFrame([{
         "usuario": "admin",
-        "senha_hash": hash_senha("030711"),
+        "senha": "030711",
     }])
     salvar_entidade("usuarios", novo, False)
     return novo
@@ -394,7 +353,7 @@ def tela_login() -> bool:
             st.error("Muitas tentativas nesta sessão. Atualize a página.")
             return False
         candidato = usuarios[usuarios["usuario"] == identificador]
-        if candidato.empty or not verificar_senha(senha, candidato.iloc[0]["senha_hash"]):
+        if candidato.empty or limpar_texto(candidato.iloc[0]["senha"]) != senha:
             st.session_state["tentativas_login"] += 1
             st.error("Usuário ou senha incorretos.")
             return False
@@ -427,12 +386,12 @@ def alterar_minha_senha() -> None:
         if st.button("Atualizar senha", key="btn_alterar_senha"):
             usuarios, _ = carregar_entidade("usuarios")
             posicao = usuarios.index[usuarios["usuario"] == st.session_state["usuario"]]
-            if posicao.empty or not verificar_senha(atual, usuarios.loc[posicao[0], "senha_hash"]):
+            if posicao.empty or limpar_texto(usuarios.loc[posicao[0], "senha"]) != atual:
                 st.error("A senha atual está incorreta.")
             elif nova != confirmar:
                 st.error("A confirmação não corresponde à nova senha.")
             else:
-                usuarios.loc[posicao[0], "senha_hash"] = hash_senha(nova)
+                usuarios.loc[posicao[0], "senha"] = nova
                 salvar_entidade("usuarios", usuarios)
                 st.success("Senha alterada com sucesso!")
 
@@ -837,7 +796,7 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
                     st.error("Já existe um usuário com este login.")
                 else:
                     novo = {
-                        "usuario": usuario, "senha_hash": hash_senha(senha),
+                        "usuario": usuario, "senha": senha,
                     }
                     if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
                         st.success("Usuário criado com sucesso!")
