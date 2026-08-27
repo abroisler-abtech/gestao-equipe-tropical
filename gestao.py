@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — correção do campo de desligamento e perfis.
+"""Painel de Gestão & DP — com balões de métricas estilizados e alertas de liberação de vagas.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -398,6 +398,7 @@ def tabela_exibicao(df: pd.DataFrame, campos: list[str]) -> pd.DataFrame:
         "data": "Data", "tipo": "Tipo", "dias": "Dias", "cid": "CID", "motivo": "Motivo", "origem": "Origem",
         "epi": "EPI", "detalhe_tamanho": "Detalhe/Tamanho", "responsavel": "Responsável",
         "tipo_evento": "Tipo de evento", "descricao": "Descrição", "autor": "Autor",
+        "data_desligamento": "Data de Desligamento",
     }
     existente = [campo for campo in campos if campo in df.columns]
     resultado = df[existente].copy()
@@ -482,16 +483,41 @@ def tela_dashboard(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str
     ativos = base[base["status"] == "Ativo"]
     em_ferias = base[base["status"] == "Férias"]
     afastados = base[base["status"] == "Afastado"]
+    desligados = base[base["status"] == "Desligado"]
     ocorrencias_hoje = faltas_base[faltas_base["data"].map(para_data) == hoje] if not faltas_base.empty else faltas_base
     ausencias_hoje = ocorrencias_hoje[ocorrencias_hoje["tipo"] != "Folga Concedida"] if not ocorrencias_hoje.empty else ocorrencias_hoje
 
     st.subheader("Painel geral de indicadores")
+    
+    # Exibição com balões estilizados (fundo escuro, borda e números em laranja vivo, texto branco)
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total no quadro", len(base))
-    c2.metric("Ativos", len(ativos))
-    c3.metric("Em férias", len(em_ferias))
-    c4.metric("Afastados", len(afastados))
-    c5.metric("Ausências hoje", len(ausencias_hoje))
+    
+    cards = [
+        ("Total no quadro", len(base)),
+        ("Ativos", len(ativos)),
+        ("Em férias", len(em_ferias)),
+        ("Afastados", len(afastados)),
+        ("Ausências hoje", len(ausencias_hoje))
+    ]
+    
+    cols = [c1, c2, c3, c4, c5]
+    for col, (titulo, valor) in zip(cols, cards):
+        col.markdown(f"""
+            <div style="background-color: #1A1D24; border: 2px solid #F97316; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                <div style="font-size: 14px; font-weight: 600; color: #F8FAFC; margin-bottom: 5px;">{titulo}</div>
+                <div style="font-size: 28px; font-weight: 800; color: #F97316;">{valor}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.subheader("🚨 Alertas & Liberação de Vagas (Desligamentos)")
+    
+    if desligados.empty:
+        st.success("Nenhum colaborador desligado registrado no momento.")
+    else:
+        tabela_desligados = tabela_exibicao(desligados, ["matricula", "funcionario", "setor", "cargo", "data_desligamento"])
+        st.dataframe(tabela_desligados, use_container_width=True, hide_index=True)
+        bloco_exportacao("vagas_liberadas_desligamentos", tabela_desligados)
 
 
 def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, autor: str) -> None:
