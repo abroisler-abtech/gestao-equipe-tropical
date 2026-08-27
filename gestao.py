@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — com edição e exclusão de usuários na aba Lista.
+"""Painel de Gestão & DP — com perfis (Admin e Gestor) e armazenamento local.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -48,7 +48,7 @@ COLUNAS: dict[str, list[str]] = {
         "status", "ultimas_ferias", "data_retorno_ferias", "decisao_experiencia",
         "data_desligamento",
     ],
-    "usuarios": ["usuario", "senha"],
+    "usuarios": ["usuario", "senha", "perfil"],
     "faltas": [
         "registro_id", "matricula", "funcionario", "setor", "data", "tipo", "dias",
         "cid", "motivo", "origem",
@@ -96,7 +96,7 @@ ALIAS_COLUNAS = {
         "decisao_experiencia": "decisao_experiencia", "decisão_experiência": "decisao_experiencia",
         "data_desligamento": "data_desligamento",
     },
-    "usuarios": {"usuario": "usuario", "senha": "senha"},
+    "usuarios": {"usuario": "usuario", "senha": "senha", "perfil": "perfil"},
     "faltas": {
         "registro_id": "registro_id", "matricula": "matricula", "matrícula": "matricula",
         "funcionario": "funcionario", "funcionário": "funcionario", "setor": "setor", "data": "data",
@@ -188,6 +188,8 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
                 df[coluna] = 0
             elif coluna in {"status"}:
                 df[coluna] = "Ativo"
+            elif coluna in {"perfil"}:
+                df[coluna] = "Admin"
             else:
                 df[coluna] = ""
 
@@ -199,9 +201,10 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
         for coluna in ("admissao", "nascimento", "ultimas_ferias", "data_retorno_ferias", "data_desligamento"):
             df[coluna] = df[coluna].map(data_iso)
     elif entidade == "usuarios":
-        for coluna in ("usuario", "senha"):
+        for coluna in ("usuario", "senha", "perfil"):
             df[coluna] = df[coluna].map(limpar_texto)
         df["usuario"] = df["usuario"].str.lower()
+        df["perfil"] = df["perfil"].replace("", "Admin")
     elif entidade in {"faltas", "epis", "historico"}:
         id_coluna = CHAVES_PRIMARIAS[entidade]
         df[id_coluna] = df[id_coluna].map(limpar_texto)
@@ -306,7 +309,7 @@ def iniciar_estado_sessao() -> None:
 def provisionar_admin_automatico(usuarios: pd.DataFrame) -> pd.DataFrame:
     if not usuarios.empty:
         return usuarios
-    novo = pd.DataFrame([{"usuario": "admin", "senha": "030711"}])
+    novo = pd.DataFrame([{"usuario": "admin", "senha": "030711", "perfil": "Admin"}])
     salvar_entidade("usuarios", novo, False)
     return novo
 
@@ -336,8 +339,13 @@ def tela_login() -> bool:
             st.error("Usuário ou senha incorretos.")
             return False
 
+        registro = candidato.iloc[0]
+        perfil_usuario = registro.get("perfil", "Admin")
+        if not perfil_usuario:
+            perfil_usuario = "Admin"
+
         st.session_state.update({
-            "autenticado": True, "usuario": identificador, "perfil": "Admin", "tentativas_login": 0,
+            "autenticado": True, "usuario": identificador, "perfil": perfil_usuario, "tentativas_login": 0,
         })
         st.rerun()
     return False
@@ -383,9 +391,9 @@ def filtrar_setor(df: pd.DataFrame, setor: str) -> pd.DataFrame:
 def tabela_exibicao(df: pd.DataFrame, campos: list[str]) -> pd.DataFrame:
     rotulos = {
         "matricula": "Matrícula", "funcionario": "Funcionário", "setor": "Setor", "cargo": "Cargo",
-        "usuario": "Usuário", "admissao": "Admissão", "nascimento": "Nascimento", "status": "Status",
-        "ultimas_ferias": "Últimas férias", "data_retorno_ferias": "Retorno das férias", "data": "Data",
-        "tipo": "Tipo", "dias": "Dias", "cid": "CID", "motivo": "Motivo", "origem": "Origem",
+        "usuario": "Usuário", "perfil": "Perfil", "admissao": "Admissão", "nascimento": "Nascimento",
+        "status": "Status", "ultimas_ferias": "Últimas férias", "data_retorno_ferias": "Retorno das férias",
+        "data": "Data", "tipo": "Tipo", "dias": "Dias", "cid": "CID", "motivo": "Motivo", "origem": "Origem",
         "epi": "EPI", "detalhe_tamanho": "Detalhe/Tamanho", "responsavel": "Responsável",
         "tipo_evento": "Tipo de evento", "descricao": "Descrição", "autor": "Autor",
     }
@@ -768,13 +776,14 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
         with st.form("novo_usuario", clear_on_submit=True):
             usuario = st.text_input("Login", help="Será convertido para letras minúsculas.").strip().lower()
             senha = st.text_input("Senha inicial", type="password")
+            perfil = st.selectbox("Perfil", ("Admin", "Gestor"))
             if st.form_submit_button("Criar usuário"):
                 if not usuario or not senha:
                     st.error("Login e senha são obrigatórios.")
                 elif (usuarios["usuario"] == usuario).any():
                     st.error("Já existe um usuário com este login.")
                 else:
-                    novo = {"usuario": usuario, "senha": senha}
+                    novo = {"usuario": usuario, "senha": senha, "perfil": perfil}
                     if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
                         st.success("Usuário criado com sucesso!")
                         st.rerun()
@@ -788,10 +797,14 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
         if selecionado:
             indice = usuarios.index[usuarios["usuario"] == selecionado][0]
             reg = usuarios.loc[indice]
+            perfil_atual = reg.get("perfil", "Admin")
+            if perfil_atual not in ("Admin", "Gestor"):
+                perfil_atual = "Admin"
             
             with st.form("form_edicao_usuario"):
                 st.markdown(f"**Editando usuário:** `{selecionado}`")
                 nova_senha = st.text_input("Nova senha (deixe em branco para não alterar)", type="password")
+                novo_perfil = st.selectbox("Perfil", ("Admin", "Gestor"), index=("Admin", "Gestor").index(perfil_atual))
                 
                 c1, c2 = st.columns(2)
                 salvar_edicao = c1.form_submit_button("Salvar alterações")
@@ -800,11 +813,10 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
                 if salvar_edicao:
                     if nova_senha.strip():
                         usuarios.loc[indice, "senha"] = nova_senha.strip()
-                        salvar_entidade("usuarios", usuarios)
-                        st.success("Senha atualizada com sucesso!")
-                        st.rerun()
-                    else:
-                        st.warning("Nenhuma alteração realizada (senha em branco).")
+                    usuarios.loc[indice, "perfil"] = novo_perfil
+                    salvar_entidade("usuarios", usuarios)
+                    st.success("Usuário atualizado com sucesso!")
+                    st.rerun()
                         
                 if excluir:
                     if len(usuarios) <= 1:
@@ -902,7 +914,9 @@ def main() -> None:
     st.session_state["fonte_colaboradores"] = fonte
     nome = st.session_state["usuario"]
     perfil = st.session_state["perfil"]
-    modulos = list(TODOS_MODULOS)
+    
+    # Se for Admin, libera tudo; se for Gestor, restringe módulos administrativos
+    modulos = list(TODOS_MODULOS) if perfil == "Admin" else [m for m in TODOS_MODULOS if m not in MODULOS_ADMIN]
 
     st.sidebar.title("🍊 Gestão & DP")
     st.sidebar.caption(f"{nome} · {perfil}")
