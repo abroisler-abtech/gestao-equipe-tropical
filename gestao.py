@@ -33,7 +33,6 @@ try:
 except Exception:
     ia_disponivel = False
 
-# Inicialização do Cliente Supabase
 try:
     supabase_url = st.secrets.get("SUPABASE_URL", "")
     supabase_key = st.secrets.get("SUPABASE_KEY", "")
@@ -108,11 +107,14 @@ st.markdown(
 ARQUIVO_DADOS = "equipe.xlsx"
 ARQUIVO_FALTAS = "faltas.xlsx"
 ARQUIVO_USUARIOS = "usuarios.xlsx"
+ARQUIVO_EPIS = "epis.xlsx"
+ARQUIVO_HISTORICO = "historico_colaboradores.xlsx"
 
 TODOS_MODULOS = [
     "Dashboard & Alertas",
     "🤖 Assistente IA (DP & Gestão)",
     "Chamada & Faltas do Dia",
+    "🦺 Solicitação & Entrega de EPI",
     "👤 Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
     "Escala Inteligente de Férias",
@@ -138,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.1 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.2 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -189,15 +191,13 @@ def carregar_usuarios():
             response = supabase.table("usuarios").select("*").execute()
             if response.data:
                 df_u = pd.DataFrame(response.data)
-                if 'id' in df_u.columns:
-                    df_u = df_u.drop(columns=['id'])
-                if 'created_at' in df_u.columns:
-                    df_u = df_u.drop(columns=['created_at'])
+                for col in ['id', 'created_at']:
+                    if col in df_u.columns:
+                        df_u = df_u.drop(columns=[col])
                 return df_u
         except Exception:
             pass
 
-    # Fallback para Excel local
     if os.path.exists(ARQUIVO_USUARIOS):
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
         df_u.columns = df_u.columns.str.strip()
@@ -212,7 +212,7 @@ def carregar_usuarios():
     else:
         dados_iniciais = [
             {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,🤖 Assistente IA (DP & Gestão),Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador", "Telefone": ""}
+            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,🤖 Assistente IA (DP & Gestão),Chamada & Faltas do Dia,🦺 Solicitação & Entrega de EPI,👤 Ficha Individual do Colaborador", "Telefone": ""}
         ]
         df_u = pd.DataFrame(dados_iniciais)
         df_u.to_excel(ARQUIVO_USUARIOS, index=False)
@@ -221,15 +221,14 @@ def carregar_usuarios():
 def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
     df_u.to_excel(ARQUIVO_USUARIOS, index=False)
-    
     if supabase_disponivel:
         try:
             supabase.table("usuarios").delete().neq("id", 0).execute()
             registros = df_u.to_dict(orient="records")
             if registros:
                 supabase.table("usuarios").insert(registros).execute()
-        except Exception as e:
-            st.toast(f"⚠️ Erro ao sincronizar usuários no Supabase: {e}", icon="⚠️")
+        except Exception:
+            pass
 
 # --- GERENCIAMENTO DE FALTAS COM SUPABASE ---
 def carregar_faltas():
@@ -238,10 +237,9 @@ def carregar_faltas():
             response = supabase.table("faltas").select("*").execute()
             if response.data:
                 df_f = pd.DataFrame(response.data)
-                if 'id' in df_f.columns:
-                    df_f = df_f.drop(columns=['id'])
-                if 'created_at' in df_f.columns:
-                    df_f = df_f.drop(columns=['created_at'])
+                for col in ['id', 'created_at']:
+                    if col in df_f.columns:
+                        df_f = df_f.drop(columns=[col])
                 df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
                 return df_f
         except Exception:
@@ -258,15 +256,85 @@ def carregar_faltas():
 def salvar_faltas(df_f):
     cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
     df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
-
     if supabase_disponivel:
         try:
             supabase.table("faltas").delete().neq("id", 0).execute()
             registros = df_f[cols_salvar].to_dict(orient="records")
             if registros:
                 supabase.table("faltas").insert(registros).execute()
-        except Exception as e:
-            st.toast(f"⚠️ Erro ao sincronizar faltas no Supabase: {e}", icon="⚠️")
+        except Exception:
+            pass
+
+# --- GERENCIAMENTO DE EPIS ---
+def carregar_epis():
+    if supabase_disponivel:
+        try:
+            response = supabase.table("epi_entregas").select("*").execute()
+            if response.data:
+                df_e = pd.DataFrame(response.data)
+                for col in ['id', 'created_at']:
+                    if col in df_e.columns:
+                        df_e = df_e.drop(columns=[col])
+                return df_e
+        except Exception:
+            pass
+
+    if os.path.exists(ARQUIVO_EPIS):
+        df_e = pd.read_excel(ARQUIVO_EPIS)
+        df_e.columns = df_e.columns.str.strip()
+        return df_e
+    else:
+        return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "EPI", "Detalhe_Tamanho", "Responsavel"])
+
+def salvar_epis(df_e):
+    df_e.to_excel(ARQUIVO_EPIS, index=False)
+    if supabase_disponivel:
+        try:
+            supabase.table("epi_entregas").delete().neq("id", 0).execute()
+            registros = df_e.to_dict(orient="records")
+            if registros:
+                supabase.table("epi_entregas").insert(registros).execute()
+        except Exception:
+            pass
+
+# --- GERENCIAMENTO DE HISTÓRICO / TIMELINE DO COLABORADOR ---
+def carregar_historico():
+    if supabase_disponivel:
+        try:
+            response = supabase.table("historico_colaboradores").select("*").execute()
+            if response.data:
+                df_h = pd.DataFrame(response.data)
+                for col in ['id', 'created_at']:
+                    if col in df_h.columns:
+                        df_h = df_h.drop(columns=[col])
+                return df_h
+        except Exception:
+            pass
+
+    if os.path.exists(ARQUIVO_HISTORICO):
+        df_h = pd.read_excel(ARQUIVO_HISTORICO)
+        df_h.columns = df_h.columns.str.strip()
+        return df_h
+    else:
+        return pd.DataFrame(columns=["Matricula", "Funcionário", "Data", "Tipo_Evento", "Descricao", "Autor"])
+
+def registrar_historico(matricula, funcionario, tipo_evento, descricao, autor):
+    df_h = carregar_historico()
+    novo_reg = {
+        "Matricula": str(matricula),
+        "Funcionário": str(funcionario),
+        "Data": datetime.now().strftime('%d/%m/%Y %H:%M'),
+        "Tipo_Evento": str(tipo_evento),
+        "Descricao": str(descricao),
+        "Autor": str(autor)
+    }
+    df_h = pd.concat([df_h, pd.DataFrame([novo_reg])], ignore_index=True)
+    df_h.to_excel(ARQUIVO_HISTORICO, index=False)
+    if supabase_disponivel:
+        try:
+            supabase.table("historico_colaboradores").insert(novo_reg).execute()
+        except Exception:
+            pass
 
 def gerar_pdf_simples(titulo, colunas, dados):
     from reportlab.lib.pagesizes import letter, landscape
@@ -348,7 +416,6 @@ def gerar_pdf_dashboard_completo(setor_nome, df_filtrado, total_q, ativos, feria
     
     cols_pres = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
     table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols_pres]]
-    
     for _, row in df_filtrado[cols_pres].iterrows():
         r_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in row]
         table_data.append(r_data)
@@ -387,7 +454,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.1 (Supabase Integrado)**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.2**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -538,6 +605,7 @@ if verificar_senha():
 
     df = carregar_dados()
     df_faltas = carregar_faltas()
+    df_epis = carregar_epis()
     hoje = date.today()
 
     perfil_usuario = st.session_state.get("perfil", "Gestor")
@@ -555,7 +623,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.1 (Supabase Ativo)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.2 (Com Módulo EPI & Prontuário 360º)**")
     st.divider()
 
     if not df.empty:
@@ -570,7 +638,6 @@ if verificar_senha():
                     st.success(f"🎉 **HOJE É ANIVERSÁRIO DE:** {colab['Funcionário']} ({colab.get('Cargo', 'N/A')} - Setor: {colab.get('Setor', 'N/A')})! Parabéns! 🎂🎈")
 
         st.sidebar.header("🔍 Filtros & Navegação")
-        
         lista_setores = ["Todos os Setores"] + sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Todos os Setores"]
         setor_selecionado = st.sidebar.selectbox("Filtrar por Setor", lista_setores)
         
@@ -587,7 +654,6 @@ if verificar_senha():
 
         menu = st.sidebar.radio("Navegação", modulos_liberados)
 
-        # CÁLCULOS DE EXPERIÊNCIA
         df_exp = df_filtrado.copy()
         df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
         df_exp['exp_90'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=90) if pd.notnull(d) else None)
@@ -598,7 +664,6 @@ if verificar_senha():
 
         if menu == "Dashboard & Alertas":
             st.subheader("⚠️ Painel Geral de Indicadores")
-            
             df_ativos = df_filtrado[df_filtrado['Status'] == 'Ativo']
             df_ferias_st = df_filtrado[df_filtrado['Status'] == 'Férias']
             df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
@@ -618,7 +683,7 @@ if verificar_senha():
                 qtd_faltantes_hoje = 0
                 df_folgas_hoje = pd.DataFrame()
                 df_ausencias_hoje = pd.DataFrame()
-                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada. Vá no menu 'Chamada & Faltas do Dia' para registrar a frequência.")
+                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada.")
 
             pendencias_ant = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
@@ -628,80 +693,6 @@ if verificar_senha():
             if not pendencias_ant.empty:
                 st.error(f"🚨 **ALERTA DE DP:** Existem {len(pendencias_ant)} ausência(s) de dias anteriores pendentes de classificação!")
 
-            exp_criticos = df_apenas_exp[
-                ((df_apenas_exp['dias_para_45'] >= 0) & (df_apenas_exp['dias_para_45'] <= 10)) | 
-                ((df_apenas_exp['dias_para_90'] >= 0) & (df_apenas_exp['dias_para_90'] <= 10))
-            ]
-            if not exp_criticos.empty:
-                st.warning(f"⏰ **ALERTA DE EXPERIÊNCIA:** Existem {len(exp_criticos)} contrato(s) de experiência vencendo nos próximos 10 dias!")
-
-            if ia_disponivel and st.button("✨ Gerar Análise Executiva e Insights com IA"):
-                with st.spinner("Analisando o quadro e as ocorrências da Tropical com Inteligência Artificial..."):
-                    resumo_dados = f"""
-                    Setor analisado: {setor_selecionado}
-                    Total de colaboradores no quadro: {len(df_filtrado)}
-                    Ativos: {len(df_ativos)}
-                    Em Férias: {len(df_ferias_st)}
-                    Afastados: {len(df_afastados)}
-                    Total de faltas/ocorrências registradas: {len(df_faltas_filtrado)}
-                    """
-                    prompt_exec = f"""Você é o consultor estratégico de RH e DP da Tropical Distribuidora. 
-                    Com base nos seguintes dados atuais, elabore um resumo executivo com 3 recomendações práticas e objetivas para a gestão de pessoas e redução de absenteísmo:
-                    {resumo_dados}
-                    """
-                    try:
-                        resp_ia = modelo_ia.generate_content(prompt_exec)
-                        st.info(f"🤖 **Análise da Inteligência Artificial:**\n\n{resp_ia.text}")
-                    except Exception as e:
-                        st.error(f"Erro ao gerar análise com IA: {e}")
-
-            cd1, cd2 = st.columns(2)
-            with cd1:
-                st.download_button(
-                    label="📥 Exportar Dados do Dashboard (.xlsx)",
-                    data=converter_df_para_excel(df_filtrado),
-                    file_name=f"dashboard_dados_{setor_selecionado.lower().replace(' ', '_')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_dash_excel"
-                )
-            with cd2:
-                pdf_dash = gerar_pdf_dashboard_completo(
-                    setor_selecionado, df_filtrado, len(df_filtrado), len(df_ativos), len(df_ferias_st), len(df_afastados), qtd_faltantes_hoje
-                )
-                st.download_button(
-                    label="🖨️ Imprimir Relatório Geral do Dashboard (PDF)",
-                    data=pdf_dash,
-                    file_name=f"dashboard_relatorio_{setor_selecionado.lower().replace(' ', '_')}.pdf",
-                    mime="application/pdf",
-                    key="btn_dash_pdf"
-                )
-
-            st.markdown("---")
-
-            p1, p2, p3 = st.columns(3)
-            with p1:
-                st.metric("🟢 Presentes Hoje", qtd_presentes_hoje if chamada_realizada else "Pendente")
-                if st.button("🔍 Ver Presentes de Hoje", key="btn_ver_pres_hoje"):
-                    if chamada_realizada:
-                        nomes_ausentes_ou_folga = chamada_hoje_existente['Funcionário'].tolist()
-                        df_pres_detalhe = df_ativos[~df_ativos['Funcionário'].isin(nomes_ausentes_ou_folga)]
-                        cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo'] if c in df_pres_detalhe.columns]
-                        exibir_modal_detalhes(f"Colaboradores Presentes em {hoje.strftime('%d/%m/%Y')}", df_pres_detalhe[cols_m])
-                    else:
-                        st.warning("Realize a chamada do dia primeiro.")
-            with p2:
-                st.metric("🏖️ Folgas Hoje", qtd_folgas_hoje if chamada_realizada else "Pendente")
-                if st.button("🔍 Ver Folgas de Hoje", key="btn_ver_folgas_hoje"):
-                    cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Motivo'] if c in df_folgas_hoje.columns]
-                    exibir_modal_detalhes(f"Colaboradores de Folga em {hoje.strftime('%d/%m/%Y')}", df_folgas_hoje if not df_folgas_hoje.empty else pd.DataFrame())
-            with p3:
-                st.metric("🔴 Faltantes / Ausentes Hoje", qtd_faltantes_hoje if chamada_realizada else "Pendente")
-                if st.button("🔍 Ver Faltantes de Hoje", key="btn_ver_faltas_hoje"):
-                    cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Motivo'] if c in df_ausencias_hoje.columns]
-                    exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
-
-            st.markdown("---")
-
             vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
             qtd_vagas = len(vagas_abertas)
             if qtd_vagas > 0:
@@ -710,123 +701,100 @@ if verificar_senha():
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Quadro", len(df_filtrado))
             if c1.button("🔍 Ver Quadro", key="btn_quadro"):
-                cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]
-                exibir_modal_detalhes("Quadro Geral de Colaboradores", df_filtrado[cols_m])
-                
+                exibir_modal_detalhes("Quadro Geral de Colaboradores", df_filtrado[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]])
+            
             c2.metric("Ativos", len(df_ativos))
             if c2.button("🔍 Ver Ativos", key="btn_ativos"):
-                cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos.columns]
-                exibir_modal_detalhes("Colaboradores Ativos no Quadro", df_ativos[cols_m])
+                exibir_modal_detalhes("Colaboradores Ativos no Quadro", df_ativos[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos.columns]])
 
             c3.metric("Em Férias", len(df_ferias_st))
             if c3.button("🔍 Ver Férias", key="btn_ferias"):
-                cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias'] if c in df_ferias_st.columns]
-                exibir_modal_detalhes("Colaboradores em Gozo de Férias", df_ferias_st[cols_m])
+                exibir_modal_detalhes("Colaboradores em Gozo de Férias", df_ferias_st[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias'] if c in df_ferias_st.columns]])
 
             c4.metric("Atest./Afast./INSS", len(df_afastados))
             if c4.button("🔍 Ver Afastados", key="btn_afastados"):
-                cols_m = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Contato'] if c in df_afastados.columns]
-                exibir_modal_detalhes("Colaboradores Afastados / Atestado / INSS", df_afastados[cols_m])
+                exibir_modal_detalhes("Colaboradores Afastados / Atestado / INSS", df_afastados[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status'] if c in df_afastados.columns]])
 
             c5.metric("Faltas Hoje", qtd_faltantes_hoje)
             if c5.button("🔍 Ver Faltas", key="btn_faltas_quadro"):
-                cols_m = [c for c in ['Data', 'Funcionário', 'Setor', 'Tipo', 'Dias', 'CID', 'Motivo'] if c in df_ausencias_hoje.columns]
                 exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
 
             niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
             c6.metric("Aniversariantes", len(niver_mes))
             if c6.button("🔍 Ver Aniversár.", key="btn_niver_m"):
-                cols_m = [c for c in ['Nascimento', 'Funcionário', 'Setor', 'Cargo'] if c in niver_mes.columns]
-                exibir_modal_detalhes(f"Aniversariantes do Mês ({hoje.strftime('%m/%Y')})", niver_mes[cols_m])
+                exibir_modal_detalhes(f"Aniversariantes do Mês ({hoje.strftime('%m/%Y')})", niver_mes[[c for c in ['Nascimento', 'Funcionário', 'Setor', 'Cargo'] if c in niver_mes.columns]])
 
         elif menu == "🤖 Assistente IA (DP & Gestão)":
             st.subheader("🤖 Assistente de Inteligência Artificial — Tropical DP")
-            st.caption("Tire dúvidas sobre legislação trabalhista (CLT), redação de e-mails, advertências, feedbacks ou orientações de gestão de equipe.")
             if not ia_disponivel:
-                st.warning("⚠️ A chave da API do Gemini (GEMINI_API_KEY) não foi configurada nos Secrets do Streamlit.")
+                st.warning("⚠️ Chave da API do Gemini não configurada.")
             else:
                 if "historico_chat" not in st.session_state:
                     st.session_state["historico_chat"] = []
-
                 for mensagem in st.session_state["historico_chat"]:
                     with st.chat_message(mensagem["role"]):
                         st.markdown(mensagem["content"])
-
                 pergunta_usuario = st.chat_input("Digite sua dúvida para o Assistente IA...")
                 if pergunta_usuario:
                     st.session_state["historico_chat"].append({"role": "user", "content": pergunta_usuario})
                     with st.chat_message("user"):
                         st.markdown(pergunta_usuario)
-
                     with st.chat_message("assistant"):
                         with st.spinner("Pensando..."):
                             try:
-                                contexto_base = f"Você é um especialista em Departamento Pessoal e Gestão de Equipes na Tropical Distribuidora. O usuário atual é {nome_usuario} ({perfil_usuario})."
-                                prompt_completo = f"{contexto_base}\n\nPergunta/Solicitação: {pergunta_usuario}"
-                                resposta_ia = modelo_ia.generate_content(prompt_completo)
-                                resposta_txt = resposta_ia.text
-                                st.markdown(resposta_txt)
-                                st.session_state["historico_chat"].append({"role": "assistant", "content": resposta_txt})
+                                resp = modelo_ia.generate_content(f"Especialista DP Tropical. Pergunta: {pergunta_usuario}")
+                                st.markdown(resp.text)
+                                st.session_state["historico_chat"].append({"role": "assistant", "content": resp.text})
                             except Exception as e:
-                                st.error(f"Desculpe, ocorreu um erro ao consultar a IA: {e}")
+                                st.error(f"Erro: {e}")
 
         elif menu == "Chamada & Faltas do Dia":
-            st.subheader(f"📌 Chamada Diária de Presença & Ocorrências - {setor_selecionado}")
-            
+            st.subheader(f"📌 Chamada Diária & Ocorrências - {setor_selecionado}")
             df_pendencias = df_faltas_filtrado[
                 (df_faltas_filtrado['dt_falta'] < hoje) & 
                 (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
             ].copy() if not df_faltas_filtrado.empty else pd.DataFrame()
 
             if not df_pendencias.empty:
-                st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):** Ausências de dias anteriores que precisam de tratativa do DP.")
-                with st.expander("🚨 **Clique aqui para tratar e regularizar as pendências dos dias anteriores**", expanded=False):
-                    st.caption("Abaixo estão os colaboradores que não compareceram em dias anteriores. Classifique e defina ações disciplinares se aplicável.")
-                    
+                st.warning(f"⚠️ **OCORRÊNCIAS A VERIFICAR ({len(df_pendencias)} PENDÊNCIA(S)):**")
+                with st.expander("🚨 **Tratar e regularizar pendências de dias anteriores**", expanded=False):
                     for idx_p, r_pend in df_pendencias.iterrows():
                         p_col1, p_col2 = st.columns([2, 2])
                         with p_col1:
-                            st.markdown(f"👤 **{r_pend['Funcionário']}**  \n📅 Data: `{r_pend['Data']}` | Setor: `{r_pend['Setor']}`")
-                            novo_tipo = st.selectbox(
-                                "Nova Classificação", 
-                                ["Falta Injustificada", "Atestado Médico", "Folga Concedida", "Justificado (Remover Ocorrência)"], 
-                                key=f"sel_tipo_p_{idx_p}"
-                            )
+                            st.markdown(f"👤 **{r_pend['Funcionário']}** | Data: `{r_pend['Data']}`")
+                            novo_tipo = st.selectbox("Classificação", ["Falta Injustificada", "Atestado Médico", "Folga Concedida", "Justificado"], key=f"sel_tipo_p_{idx_p}")
                         with p_col2:
-                            if novo_tipo == "Atestado Médico":
-                                novo_cid = st.text_input("Código CID", value="", key=f"cid_p_{idx_p}")
-                            else:
-                                novo_cid = "-"
-                            
+                            novo_cid = st.text_input("CID", value="", key=f"cid_p_{idx_p}") if novo_tipo == "Atestado Médico" else "-"
                             gerar_adv = False
                             gerar_susp = False
                             if novo_tipo == "Falta Injustificada":
-                                st.markdown("##### ⚖️ Ações Disciplinares:")
                                 c_chk1, c_chk2 = st.columns(2)
-                                gerar_adv = c_chk1.checkbox("Aplicar Advertência?", value=False, key=f"adv_p_{idx_p}")
-                                gerar_susp = c_chk2.checkbox("Aplicar Suspensão?", value=False, key=f"susp_p_{idx_p}")
+                                gerar_adv = c_chk1.checkbox("Advertência?", value=False, key=f"adv_p_{idx_p}")
+                                gerar_susp = c_chk2.checkbox("Suspensão?", value=False, key=f"susp_p_{idx_p}")
 
-                        if st.button("💾 Resolver Ocorrência", key=f"btn_res_{idx_p}"):
+                        if st.button("💾 Resolver", key=f"btn_res_{idx_p}"):
                             mask_orig = (df_faltas['Funcionário'] == r_pend['Funcionário']) & (df_faltas['Data'] == r_pend['Data'])
-                            if novo_tipo == "Justificado (Remover Ocorrência)":
+                            if novo_tipo == "Justificado":
                                 df_faltas = df_faltas[~mask_orig].reset_index(drop=True)
                             else:
-                                obs_disciplinar = []
-                                if gerar_adv: obs_disciplinar.append("Advertência Aplicada")
-                                if gerar_susp: obs_disciplinar.append("Suspensão Aplicada")
-                                txt_obs = f" | ".join(obs_disciplinar) if obs_disciplinar else "Tratado pelo DP"
+                                obs_disc = []
+                                if gerar_adv: 
+                                    obs_disc.append("Advertência Aplicada")
+                                    registrar_historico(r_pend['Matricula'], r_pend['Funcionário'], "Advertência", f"Advertência aplicada referente à falta do dia {r_pend['Data']}", nome_usuario)
+                                if gerar_susp: 
+                                    obs_disc.append("Suspensão Aplicada")
+                                    registrar_historico(r_pend['Matricula'], r_pend['Funcionário'], "Suspensão", f"Suspensão aplicada referente à falta do dia {r_pend['Data']}", nome_usuario)
                                 
+                                txt_obs = " | ".join(obs_disc) if obs_disc else "Tratado pelo DP"
                                 df_faltas.loc[mask_orig, 'Tipo'] = novo_tipo
                                 df_faltas.loc[mask_orig, 'CID'] = novo_cid.upper() if novo_cid else "-"
-                                df_faltas.loc[mask_orig, 'Motivo'] = f"Tratado em {hoje.strftime('%d/%m/%Y')} - {txt_obs}"
+                                df_faltas.loc[mask_orig, 'Motivo'] = f"Regularizado em {hoje.strftime('%d/%m/%Y')} - {txt_obs}"
                             
                             salvar_faltas(df_faltas)
-                            st.toast("✅ Ocorrência regularizada com sucesso!", icon="🎉")
+                            st.toast("✅ Ocorrência regularizada!", icon="🎉")
                             st.rerun()
-                    st.markdown("---")
 
-            tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária (Presença)", "➕ Lançamento Avulso", "📋 Histórico Completo"])
-            
+            tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária", "➕ Lançamento Avulso", "📋 Histórico"])
             with tab_chamada:
                 termos_lideranca = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider']
                 colabs_operacionais = df_filtrado[
@@ -835,144 +803,131 @@ if verificar_senha():
                 ].copy()
 
                 if colabs_operacionais.empty:
-                    st.warning("Nenhum colaborador operacional ativo no setor para chamada.")
+                    st.warning("Nenhum colaborador operacional ativo.")
                 else:
                     data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY")
-                    st.info("💡 **Instruções:** Marque a caixa **Presente** para quem veio e **Folga** se for folga programada.")
-                    
-                    faltas_existentes_data = df_faltas[
-                        (df_faltas['dt_falta'] == data_chamada) & 
-                        (df_faltas['Setor'] == setor_selecionado)
-                    ] if not df_faltas.empty else pd.DataFrame()
+                    faltas_existentes = df_faltas[(df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado)] if not df_faltas.empty else pd.DataFrame()
 
                     with st.form("form_chamada_diaria"):
-                        st.markdown("---")
                         for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
-                            val_pres_def = False
-                            val_folga_def = False
-                            
-                            if not faltas_existentes_data.empty:
-                                reg_colab = faltas_existentes_data[faltas_existentes_data['Funcionário'] == nome_c]
-                                if not reg_colab.empty:
-                                    tipo_reg = reg_colab.iloc[0].get('Tipo', '')
-                                    if tipo_reg == 'Folga Concedida':
-                                        val_folga_def = True
-                                    elif 'Presente' in tipo_reg or tipo_reg == '':
-                                        val_pres_def = True
-                            
-                            c_nome, c_pres, c_folga = st.columns([2.5, 1, 1])
-                            with c_nome:
-                                st.markdown(f"**{nome_c}**  \n<font size=2 color='#CBD5E1'>{colab_c.get('Cargo', 'N/A')}</font>", unsafe_allow_html=True)
-                            with c_pres:
-                                st.checkbox("Presente", value=val_pres_def, key=f"chk_pres_{i_c}")
-                            with c_folga:
-                                st.checkbox("Folga", value=val_folga_def, key=f"chk_folga_{i_c}")
-                            
-                        btn_salvar_chamada = st.form_submit_button("💾 Salvar Chamada do Dia")
+                            val_pres, val_folga = False, False
+                            if not faltas_existentes.empty:
+                                reg_c = faltas_existentes[faltas_existentes['Funcionário'] == nome_c]
+                                if not reg_c.empty:
+                                    if reg_c.iloc[0].get('Tipo') == 'Folga Concedida': val_folga = True
+                                    else: val_pres = False
+                                else: val_pres = True
+                            else:
+                                val_pres = True
+
+                            c_n, c_p, c_f = st.columns([2.5, 1, 1])
+                            c_n.markdown(f"**{nome_c}**")
+                            c_p.checkbox("Presente", value=val_pres, key=f"chk_pres_{i_c}")
+                            c_f.checkbox("Folga", value=val_folga, key=f"chk_folga_{i_c}")
                         
-                        if btn_salvar_chamada:
+                        if st.form_submit_button("💾 Salvar Chamada"):
                             df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
-                            
                             novas_f = []
                             for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
-                                nome_c = colab_c['Funcionário']
-                                esteve_presente = st.session_state.get(f"chk_pres_{i_c}", False)
-                                esta_de_folga = st.session_state.get(f"chk_folga_{i_c}", False)
-                                
-                                if esta_de_folga:
-                                    novas_f.append({
-                                        "Matricula": str(colab_c.get('Matricula', '')),
-                                        "Funcionário": nome_c,
-                                        "Setor": colab_c.get('Setor', ''),
-                                        "Data": data_chamada.strftime('%d/%m/%Y'),
-                                        "Tipo": "Folga Concedida",
-                                        "Dias": 1,
-                                        "CID": "-",
-                                        "Motivo": "Folga Programada / Escala",
-                                        "dt_falta": data_chamada
-                                    })
-                                elif not esteve_presente:
-                                    tipo_inicial = "Ausência / A Confirmar" if data_chamada < hoje else "Falta Injustificada"
-                                    novas_f.append({
-                                        "Matricula": str(colab_c.get('Matricula', '')),
-                                        "Funcionário": nome_c,
-                                        "Setor": colab_c.get('Setor', ''),
-                                        "Data": data_chamada.strftime('%d/%m/%Y'),
-                                        "Tipo": tipo_inicial,
-                                        "Dias": 1,
-                                        "CID": "-",
-                                        "Motivo": "Não compareceu no turno",
-                                        "dt_falta": data_chamada
-                                    })
-
+                                p = st.session_state.get(f"chk_pres_{i_c}", False)
+                                f = st.session_state.get(f"chk_folga_{i_c}", False)
+                                if f:
+                                    novas_f.append({"Matricula": str(colab_c.get('Matricula', '')), "Funcionário": colab_c['Funcionário'], "Setor": colab_c.get('Setor', ''), "Data": data_chamada.strftime('%d/%m/%Y'), "Tipo": "Folga Concedida", "Dias": 1, "CID": "-", "Motivo": "Folga", "dt_falta": data_chamada})
+                                elif not p:
+                                    t_ini = "Ausência / A Confirmar" if data_chamada < hoje else "Falta Injustificada"
+                                    novas_f.append({"Matricula": str(colab_c.get('Matricula', '')), "Funcionário": colab_c['Funcionário'], "Setor": colab_c.get('Setor', ''), "Data": data_chamada.strftime('%d/%m/%Y'), "Tipo": t_ini, "Dias": 1, "CID": "-", "Motivo": "Ausente", "dt_falta": data_chamada})
                             if novas_f:
                                 df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
-                                salvar_faltas(df_faltas)
-                                st.toast("✅ Chamada registrada com sucesso!", icon="📝")
-                            else:
-                                salvar_faltas(df_faltas)
-                                st.toast("✅ Chamada gravada! 100% de presença no turno.", icon="🎉")
+                            salvar_faltas(df_faltas)
+                            st.toast("✅ Chamada salva!", icon="📝")
                             st.rerun()
 
-                    faltas_da_chamada = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == data_chamada] if not df_faltas_filtrado.empty else pd.DataFrame()
-                    qtd_f_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] != 'Folga Concedida'])
-                    qtd_folgas_ch = len(faltas_da_chamada[faltas_da_chamada['Tipo'] == 'Folga Concedida'])
-                    qtd_p_ch = max(0, len(colabs_operacionais) - qtd_f_ch - qtd_folgas_ch)
-                    
-                    st.markdown("---")
-                    st.markdown("##### 📲 Resumo Formatado para Envio via WhatsApp / Grupo de Trabalho:")
-                    txt_wa = f"📊 *RESUMO DE PRESENÇA - TROPICAL DISTRIBUIDORA*\n"
-                    txt_wa += f"📅 *Data:* {data_chamada.strftime('%d/%m/%Y')} | *Setor:* {setor_selecionado}\n"
-                    txt_wa += f"🟢 *Presentes:* {qtd_p_ch} colaboradores\n"
-                    if qtd_folgas_ch > 0:
-                        txt_wa += f"🏖️ *Folgas:* {qtd_folgas_ch} colaboradores\n"
-                    txt_wa += f"🔴 *Ausentes/Faltas:* {qtd_f_ch} colaboradores\n\n"
-                    
-                    if not faltas_da_chamada.empty:
-                        txt_wa += "*Detalhe do Turno:*\n"
-                        for _, f_row in faltas_da_chamada.iterrows():
-                            txt_wa += f"• {f_row['Funcionário']} ({f_row.get('Tipo', 'Ausência')}) - {f_row.get('Motivo', '-')}\n"
-                    else:
-                        txt_wa += "✨ *Turno com 100% de assiduidade!*\n"
-                    st.code(txt_wa, language="markdown")
-
             with tab_avulso:
-                with st.form("form_falta_avulsa", clear_on_submit=True):
-                    colabs_lista = sorted(df_filtrado[df_filtrado['Status'].isin(['Ativo', 'Férias'])]['Funcionário'].unique()) if not df_filtrado.empty else []
-                    nome_colab = st.selectbox("Selecione o Colaborador:", colabs_lista)
-                    c_t1, c_t2, c_t3 = st.columns([1.5, 1, 1])
-                    tipo_falta = c_t1.selectbox("Tipo de Ocorrência", ["Falta Injustificada", "Atestado Médico", "Folga Concedida"])
-                    data_falta = c_t2.date_input("Data do Ocorrido", value=hoje, format="DD/MM/YYYY")
-                    dias_falta = c_t3.number_input("Qtd. de Dias", min_value=1, max_value=60, value=1, step=1)
-                    c_c1, c_c2 = st.columns([1, 2])
-                    cid_input = c_c1.text_input("Código CID (Se atestado)", value="")
-                    motivo_obs = c_c2.text_input("Observação / Motivo Geral", value="")
-                    btn_salvar_avulso = st.form_submit_button("💾 Salvar Lançamento Avulso")
-                    
-                    if btn_salvar_avulso and nome_colab:
-                        d_colab = df_filtrado[df_filtrado['Funcionário'] == nome_colab].iloc[0]
-                        nova_ocorrencia = {
-                            "Matricula": str(d_colab.get('Matricula', '')),
-                            "Funcionário": nome_colab,
-                            "Setor": d_colab.get('Setor', ''),
-                            "Data": data_falta.strftime('%d/%m/%Y'),
-                            "Tipo": tipo_falta,
-                            "Dias": dias_falta,
-                            "CID": cid_input.strip().upper() if cid_input.strip() else "-",
-                            "Motivo": motivo_obs,
-                            "dt_falta": data_falta
-                        }
-                        df_faltas = pd.concat([df_faltas, pd.DataFrame([nova_ocorrencia])], ignore_index=True)
+                with st.form("form_avulso", clear_on_submit=True):
+                    colabs_l = sorted(df_filtrado[df_filtrado['Status'].isin(['Ativo', 'Férias'])]['Funcionário'].unique())
+                    n_colab = st.selectbox("Colaborador:", colabs_l)
+                    t_f = st.selectbox("Tipo:", ["Falta Injustificada", "Atestado Médico", "Folga Concedida"])
+                    d_f = st.date_input("Data:", value=hoje, format="DD/MM/YYYY")
+                    dias_n = st.number_input("Dias:", 1, 60, 1)
+                    cid_v = st.text_input("CID:", "")
+                    obs_v = st.text_input("Observação:", "")
+                    if st.form_submit_button("Salvar Avulso") and n_colab:
+                        d_c = df_filtrado[df_filtrado['Funcionário'] == n_colab].iloc[0]
+                        novo_av = {"Matricula": str(d_c.get('Matricula', '')), "Funcionário": n_colab, "Setor": d_c.get('Setor', ''), "Data": d_f.strftime('%d/%m/%Y'), "Tipo": t_f, "Dias": dias_n, "CID": cid_v.upper() or "-", "Motivo": obs_v, "dt_falta": d_f}
+                        df_faltas = pd.concat([df_faltas, pd.DataFrame([novo_av])], ignore_index=True)
                         salvar_faltas(df_faltas)
-                        st.toast("✅ Ocorrência avulsa salva!", icon="📌")
+                        st.toast("Ocorrência salva!")
                         st.rerun()
 
             with tab_hist_f:
-                if df_faltas_filtrado.empty:
-                    st.info("Nenhum registro cadastrado até o momento.")
-                else:
+                if not df_faltas_filtrado.empty:
                     st.dataframe(df_faltas_filtrado, use_container_width=True)
+
+        elif menu == "🦺 Solicitação & Entrega de EPI":
+            st.subheader("🦺 Módulo de Solicitação e Entrega de EPI")
+            st.caption("Solicite camisetas (P, M, G, GG) e botas de bico de aço (por numeração) para os colaboradores. O registro alimentará automaticamente o prontuário.")
+
+            with st.form("form_epi", clear_on_submit=True):
+                colabs_epi = sorted(df_filtrado[df_filtrado['Status'] == 'Ativo']['Funcionário'].unique())
+                colab_escolhido = st.selectbox("Selecione o Colaborador:", colabs_epi)
+                
+                c_e1, c_e2, c_e3 = st.columns(3)
+                tipo_epi = c_e1.selectbox("Tipo de EPI:", ["Camiseta", "Bota Bico de Aço"])
+                
+                tamanho_sel = "-"
+                if tipo_epi == "Camiseta":
+                    tamanho_sel = c_e2.selectbox("Tamanho da Camiseta:", ["P", "M", "G", "GG"])
+                else:
+                    tamanho_sel = c_e2.text_input("Numeração da Bota (Ex: 39, 40, 41):", value="")
+                
+                data_pedido = c_e3.date_input("Data da Solicitação/Entrega:", value=hoje, format="DD/MM/YYYY")
+                obs_epi = st.text_input("Observações (Ex: Troca por desgaste, extravio, primeira entrega):", value="")
+
+                btn_registrar_epi = st.form_submit_button("🦺 Registrar Entrega & Gerar Notificação para RH")
+
+                if btn_registrar_epi and colab_escolhido:
+                    dados_colab = df_filtrado[df_filtrado['Funcionário'] == colab_escolhido].iloc[0]
+                    detalhe_completo = f"{tipo_epi} - Tam/Num: {tamanho_sel} | Obs: {obs_epi}"
+                    
+                    novo_registro_epi = {
+                        "Matricula": str(dados_colab.get('Matricula', '')),
+                        "Funcionário": colab_escolhido,
+                        "Setor": dados_colab.get('Setor', ''),
+                        "Data": data_pedido.strftime('%d/%m/%Y'),
+                        "EPI": tipo_epi,
+                        "Detalhe_Tamanho": str(tamanho_sel),
+                        "Responsavel": nome_usuario
+                    }
+                    
+                    df_epis = pd.concat([df_epis, pd.DataFrame([novo_registro_epi])], ignore_index=True)
+                    salvar_epis(df_epis)
+                    
+                    # Registrar no histórico do colaborador
+                    registrar_historico(dados_colab.get('Matricula', ''), colab_escolhido, "Entrega de EPI", detalhe_completo, nome_usuario)
+                    
+                    st.success(f"✅ EPI registrado com sucesso e adicionado ao prontuário de {colab_escolhido}!")
+                    
+                    # Geração do texto para WhatsApp para notificar o RH
+                    st.markdown("---")
+                    st.markdown("##### 📲 Mensagem Pronta para Envio ao RH / Estoque via WhatsApp:")
+                    txt_msg_epi = f"""🦺 *SOLICITAÇÃO / ENTREGA DE EPI - TROPICAL*
+📅 *Data:* {data_pedido.strftime('%d/%m/%Y')}
+👤 *Colaborador:* {colab_escolhido}
+🏢 *Setor:* {dados_colab.get('Setor', 'N/A')}
+🛠️ *Item:* {tipo_epi}
+📏 *Tamanho / Numeração:* {tamanho_sel}
+📝 *Obs:* {obs_epi if obs_epi else 'N/A'}
+_Registrado por: {nome_usuario}_"""
+                    st.code(txt_msg_epi, language="markdown")
+
+            st.markdown("---")
+            st.markdown("##### 📋 Histórico Geral de EPIs Entregues no Setor:")
+            if not df_epis.empty:
+                df_epis_filtrado = df_epis[df_epis['Setor'] == setor_selecionado] if setor_selecionado != "Todos os Setores" else df_epis
+                st.dataframe(df_epis_filtrado, use_container_width=True)
+            else:
+                st.info("Nenhum EPI registrado até o momento.")
 
         elif menu == "👤 Ficha Individual do Colaborador":
             st.subheader("👤 Prontuário & Ficha Individual 360º")
@@ -980,7 +935,7 @@ if verificar_senha():
             if not lista_todos_colabs:
                 st.warning("Nenhum colaborador encontrado.")
             else:
-                colab_sel = st.selectbox("Selecione o Colaborador para visualizar a ficha:", lista_todos_colabs)
+                colab_sel = st.selectbox("Selecione o Colaborador:", lista_todos_colabs)
                 r_c = df[df['Funcionário'] == colab_sel].iloc[0]
                 c_f1, c_f2 = st.columns([1, 2])
                 with c_f1:
@@ -989,300 +944,229 @@ if verificar_senha():
                     st.markdown(f"**Cargo:** {r_c.get('Cargo', 'N/A')}")
                     st.markdown(f"**Setor:** {r_c.get('Setor', 'N/A')}")
                     st.markdown(f"**Status Atual:** `{r_c.get('Status', 'Ativo')}`")
+                    if str(r_c.get('Status')) == 'Desligado':
+                        st.markdown(f"**Data Desligamento:** `{r_c.get('Data_Desligamento', 'N/A')}`")
                 with c_f2:
                     dt_adm_txt = r_c['dt_adm'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_adm')) else 'N/A'
                     dt_nasc_txt = r_c['dt_nasc'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_nasc')) else 'N/A'
                     ult_f_txt = str(r_c.get('Ultimas_Ferias')) if pd.notnull(r_c.get('Ultimas_Ferias')) else 'Nenhuma registrada'
                     st.info(f"📅 **Admissão:** {dt_adm_txt} | 🎂 **Nascimento:** {dt_nasc_txt}\n\n🏖️ **Últimas Férias:** {ult_f_txt}")
+                
                 st.divider()
+                
+                # Exibição do Histórico / Timeline consolidada do Colaborador
+                st.markdown("##### 🕒 Histórico de Movimentações, Punições e Alterações (Timeline):")
+                df_hist_geral = carregar_historico()
+                df_hist_colab = df_hist_geral[df_hist_geral['Funcionário'] == colab_sel] if not df_hist_geral.empty else pd.DataFrame()
+                if not df_hist_colab.empty:
+                    st.dataframe(df_hist_colab[['Data', 'Tipo_Evento', 'Descricao', 'Autor']], use_container_width=True)
+                else:
+                    st.info("Nenhum evento registrado no histórico para este colaborador.")
+
+                st.markdown("##### 🦺 Histórico de EPIs Entregues:")
+                df_epi_colab = df_epis[df_epis['Funcionário'] == colab_sel] if not df_epis.empty else pd.DataFrame()
+                if not df_epi_colab.empty:
+                    st.dataframe(df_epi_colab[['Data', 'EPI', 'Detalhe_Tamanho', 'Responsavel']], use_container_width=True)
+                else:
+                    st.success("Nenhum EPI registrado para este colaborador.")
+
+                st.markdown("##### 📋 Histórico de Ausências & Ocorrências:")
                 f_colab = df_faltas[df_faltas['Funcionário'] == colab_sel] if not df_faltas.empty else pd.DataFrame()
-                st.markdown("##### 📋 Histórico de Ausências & Ocorrências Lançadas:")
                 if f_colab.empty:
-                    st.success("Nenhuma ocorrência ou falta registrada para este colaborador.")
+                    st.success("Nenhuma falta ou ocorrência registrada.")
                 else:
                     st.dataframe(f_colab[['Data', 'Tipo', 'Dias', 'CID', 'Motivo']], use_container_width=True)
 
         elif menu == "📊 Indicadores de Frequência & Absenteísmo":
             st.subheader("📊 Painel Analítico de Assiduidade & Ocorrências")
             if df_faltas_filtrado.empty:
-                st.info("Nenhuma ocorrência registrada no período para gerar análise gráfica.")
+                st.info("Nenhuma ocorrência registrada.")
             else:
                 m1, m2, m3 = st.columns(3)
-                tot_dias_perdidos = df_faltas_filtrado['Dias'].sum()
-                tot_atestados = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Atestado Médico'])
-                tot_faltas_injust = len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Falta Injustificada'])
-                m1.metric("Total Dias Afastados", tot_dias_perdidos)
-                m2.metric("Ocorrências Atestado", tot_atestados)
-                m3.metric("Faltas Injustificadas", tot_faltas_injust)
+                m1.metric("Dias Afastados", df_faltas_filtrado['Dias'].sum())
+                m2.metric("Atestados", len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Atestado Médico']))
+                m3.metric("Faltas Injustificadas", len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Falta Injustificada']))
                 st.divider()
-                fig_setor = px.histogram(df_faltas_filtrado, x='Setor', y='Dias', color='Tipo', barmode='group', title="Total de Dias Perdidos por Setor")
-                fig_setor.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='white')
-                st.plotly_chart(fig_setor, use_container_width=True)
+                fig_s = px.histogram(df_faltas_filtrado, x='Setor', y='Dias', color='Tipo', barmode='group', title="Dias Perdidos por Setor")
+                fig_s.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='white')
+                st.plotly_chart(fig_s, use_container_width=True)
 
         elif menu == "Controle de Experiência (45/90 dias)":
-            st.subheader(f"📋 Colaboradores em Período de Experiência e Ações - {setor_selecionado}")
+            st.subheader(f"📋 Período de Experiência - {setor_selecionado}")
             if df_apenas_exp.empty:
-                st.success("Nenhum colaborador em período de experiência neste setor.")
+                st.success("Nenhum colaborador em experiência.")
             else:
-                cols_presentes = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_apenas_exp.columns]
-                df_exibir = df_apenas_exp[cols_presentes].copy()
-                df_exibir['Vencimento 45 Dias'] = df_apenas_exp['exp_45'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "")
-                df_exibir['Faltam (45d)'] = df_apenas_exp['dias_para_45'].apply(lambda d: f"{d} dias" if d >= 0 else "Já passou")
-                df_exibir['Vencimento 90 Dias'] = df_apenas_exp['exp_90'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "")
-                df_exibir['Faltam (90d)'] = df_apenas_exp['dias_para_90'].apply(lambda d: f"{d} dias")
-                st.dataframe(df_exibir, use_container_width=True)
+                df_ex = df_apenas_exp[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_apenas_exp.columns]].copy()
+                df_ex['Vencimento 45d'] = df_apenas_exp['exp_45'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "")
+                df_ex['Vencimento 90d'] = df_apenas_exp['exp_90'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "")
+                st.dataframe(df_ex, use_container_width=True)
 
         elif menu == "Escala Inteligente de Férias":
             ferias.renderizar_modulo_ferias(df)
 
         elif menu == "🏖️ Colaboradores em Férias":
-            st.subheader(f"🏖️ Colaboradores em Gozo de Férias & Programados - {setor_selecionado}")
-            tab_f_atuais, tab_f_prog = st.tabs(["🌴 Em Gozo de Férias Agora", "📅 Próximas Férias Agendadas"])
-            with tab_f_atuais:
-                df_em_ferias = df_filtrado[df_filtrado['Status'] == 'Férias'].copy()
-                if df_em_ferias.empty:
-                    st.info("Nenhum colaborador em gozo de férias no momento neste setor.")
-                else:
-                    cols_f_exibir = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão', 'Ultimas_Ferias'] if c in df_em_ferias.columns]
-                    st.dataframe(df_em_ferias[cols_f_exibir], use_container_width=True)
-            with tab_f_prog:
-                df_com_ferias_reg = df_filtrado[df_filtrado['Ultimas_Ferias'].notnull()].copy()
-                if df_com_ferias_reg.empty:
-                    st.info("Nenhum agendamento futuro de férias registrado.")
-                else:
-                    cols_f_prog = [c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias', 'Status'] if c in df_com_ferias_reg.columns]
-                    st.dataframe(df_com_ferias_reg[cols_f_prog], use_container_width=True)
+            st.subheader("🏖️ Colaboradores em Gozo de Férias")
+            df_fer = df_filtrado[df_filtrado['Status'] == 'Férias']
+            if df_fer.empty:
+                st.info("Nenhum colaborador em férias.")
+            else:
+                st.dataframe(df_fer[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias'] if c in df_fer.columns]], use_container_width=True)
 
         elif menu == "Aniversariantes do Mês":
             st.subheader(f"🎂 Aniversariantes do Mês - {setor_selecionado}")
-            meses_nomes = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-            mes_sel_idx = st.selectbox("Selecione o Mês", range(1, 13), index=hoje.month - 1, format_func=lambda m: meses_nomes[m-1])
+            meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            m_idx = st.selectbox("Selecione o Mês:", range(1, 13), index=hoje.month - 1, format_func=lambda m: meses[m-1])
             if 'dt_nasc_dt' in df_filtrado.columns:
-                df_niver = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == mes_sel_idx].copy()
-                if not df_niver.empty:
-                    df_niver['Dia_Nasc'] = df_niver['dt_nasc_dt'].dt.day
-                    df_niver = df_niver.sort_values(by='Dia_Nasc').drop(columns=['Dia_Nasc'])
-                st.dataframe(df_niver, use_container_width=True)
+                df_niv = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == m_idx].copy()
+                if not df_niv.empty:
+                    df_niv['Dia'] = df_niv['dt_nasc_dt'].dt.day
+                    df_niv = df_niv.sort_values(by='Dia').drop(columns=['Dia'])
+                st.dataframe(df_niv, use_container_width=True)
 
         elif menu == "Cadastrar / Editar Colaborador":
-            st.subheader("👥 Gestão do Cadastro de Colaboradores")
-            tab_cad, tab_edit_colab = st.tabs(["➕ Novo Colaborador", "✏️ Editar / Inativar Colaborador"])
-            
-            with tab_cad:
-                with st.form("form_novo_colaborador", clear_on_submit=True):
-                    st.markdown("##### 📝 Dados do Novo Colaborador")
-                    c_c1, c_c2 = st.columns(2)
-                    c_mat = c_c1.text_input("Matrícula:")
-                    c_nome = c_c2.text_input("Nome Completo:")
-                    c_s1, c_s2 = st.columns(2)
-                    setores_opts = sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Geral"]
-                    c_setor = c_s1.selectbox("Setor:", setores_opts)
-                    c_cargo = c_s2.text_input("Cargo:")
-                    c_d1, c_d2, c_d3 = st.columns(3)
-                    c_adm = c_d1.date_input("Data de Admissão:", value=hoje, format="DD/MM/YYYY")
-                    c_nasc = c_d2.date_input(
-                        "Data de Nascimento:", 
-                        value=date(1995, 1, 1), 
-                        min_value=date(1950, 1, 1), 
-                        max_value=hoje, 
-                        format="DD/MM/YYYY"
-                    )
-                    c_status = c_d3.selectbox("Status Inicial:", ["Ativo", "Férias", "Afastado", "Desligado"])
-                    btn_salvar_colab = st.form_submit_button("💾 Salvar Colaborador")
+            st.subheader("👥 Gestão de Colaboradores")
+            t_cad, t_ed = st.tabs(["➕ Novo Colaborador", "✏️ Editar / Desligar"])
+            with t_cad:
+                with st.form("f_novo", clear_on_submit=True):
+                    c1, c2 = st.columns(2)
+                    mat_c = c1.text_input("Matrícula:")
+                    nom_c = c2.text_input("Nome Completo:")
+                    s1, s2 = st.columns(2)
+                    set_c = s1.selectbox("Setor:", sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Geral"])
+                    car_c = s2.text_input("Cargo:")
+                    d1, d2, d3 = st.columns(3)
+                    adm_c = d1.date_input("Admissão:", value=hoje, format="DD/MM/YYYY")
+                    nasc_c = d2.date_input("Nascimento:", value=date(1995, 1, 1), min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
+                    st_c = d3.selectbox("Status:", ["Ativo", "Férias", "Afastado", "Desligado"])
                     
-                    if btn_salvar_colab and c_nome:
-                        novo_c = {
-                            "Matricula": str(c_mat).strip(),
-                            "Funcionário": str(c_nome).strip(),
-                            "Setor": str(c_setor),
-                            "Cargo": str(c_cargo).strip(),
-                            "Admissão": c_adm.strftime('%d/%m/%Y'),
-                            "Nascimento": c_nasc.strftime('%d/%m/%Y'),
-                            "Status": str(c_status)
-                        }
-                        df = pd.concat([df, pd.DataFrame([novo_c])], ignore_index=True)
+                    if st.form_submit_button("Salvar") and nom_c:
+                        novo = {"Matricula": mat_c, "Funcionário": nom_c, "Setor": set_c, "Cargo": car_c, "Admissão": adm_c.strftime('%d/%m/%Y'), "Nascimento": nasc_c.strftime('%d/%m/%Y'), "Status": st_c}
+                        df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
                         salvar_dados(df)
-                        st.toast(f"✅ Colaborador '{c_nome}' cadastrado com sucesso!", icon="🎉")
+                        registrar_historico(mat_c, nom_c, "Cadastro Inicial", "Colaborador cadastrado no sistema", nome_usuario)
+                        st.toast("Cadastrado com sucesso!")
                         st.rerun()
 
-            with tab_edit_colab:
-                lista_colabs_cad = sorted(df['Funcionário'].dropna().unique())
-                colab_sel_edit = st.selectbox("Selecione o Colaborador para Alterar:", lista_colabs_cad)
-                if colab_sel_edit:
-                    idx_c = df[df['Funcionário'] == colab_sel_edit].index[0]
-                    colab_row = df.loc[idx_c]
-                    with st.form("form_editar_colaborador"):
-                        st.info(f"Alterando cadastro de **{colab_row['Funcionário']}**")
-                        e_c1, e_c2 = st.columns(2)
-                        e_mat = e_c1.text_input("Matrícula:", value=str(colab_row.get('Matricula', '')))
-                        e_nome = e_c2.text_input("Nome Completo:", value=str(colab_row['Funcionário']))
+            with t_ed:
+                colabs_e = sorted(df['Funcionário'].dropna().unique())
+                sel_e = st.selectbox("Selecione para Alterar:", colabs_e)
+                if sel_e:
+                    idx_el = df[df['Funcionário'] == sel_e].index[0]
+                    row_e = df.loc[idx_el]
+                    with st.form("f_ed"):
+                        e1, e2 = st.columns(2)
+                        em = e1.text_input("Matrícula:", value=str(row_e.get('Matricula', '')))
+                        en = e2.text_input("Nome:", value=str(row_e['Funcionário']))
+                        es1, es2 = st.columns(2)
+                        eset = es1.text_input("Setor:", value=str(row_e.get('Setor', '')))
+                        ecar = es2.text_input("Cargo:", value=str(row_e.get('Cargo', '')))
                         
-                        e_s1, e_s2 = st.columns(2)
-                        e_setor = e_s1.text_input("Setor:", value=str(colab_row.get('Setor', '')))
-                        e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
+                        ed1, ed2, ed3 = st.columns(3)
+                        val_ad = row_e.get('dt_adm') if pd.notnull(row_e.get('dt_adm')) else hoje
+                        ead = ed1.date_input("Admissão:", value=val_ad, format="DD/MM/YYYY")
                         
-                        e_d1, e_d2, e_d3 = st.columns(3)
-                        val_adm_atual = colab_row.get('dt_adm') if pd.notnull(colab_row.get('dt_adm')) else hoje
-                        e_adm = e_d1.date_input("Data de Admissão:", value=val_adm_atual, format="DD/MM/YYYY")
+                        opts_st = ["Ativo", "Férias", "Afastado", "Desligado"]
+                        st_at = row_e.get('Status', 'Ativo')
+                        est = ed2.selectbox("Status:", opts_st, index=opts_st.index(st_at) if st_at in opts_st else 0)
+                        euf = ed3.text_input("Últimas Férias:", value=str(row_e.get('Ultimas_Ferias', '')) if pd.notnull(row_e.get('Ultimas_Ferias')) else "")
                         
-                        opts_status = ["Ativo", "Férias", "Afastado", "Desligado"]
-                        st_atual = colab_row.get('Status', 'Ativo')
-                        idx_st = opts_status.index(st_atual) if st_atual in opts_status else 0
-                        e_status = e_d2.selectbox("Status Atual:", opts_status, index=idx_st)
-                        
-                        e_ult_ferias = e_d3.text_input("Últimas Férias (DD/MM/AAAA):", value=str(colab_row.get('Ultimas_Ferias', '')) if pd.notnull(colab_row.get('Ultimas_Ferias')) else "")
-                        
-                        e_data_deslig = None
-                        if e_status == "Desligado":
-                            st.warning("⚠️ Você selecionou o status **Desligado**. Por favor, informe a data do desligamento abaixo:")
-                            val_deslig_atual = pd.to_datetime(colab_row.get('Data_Desligamento'), errors='coerce')
-                            val_deslig_def = val_deslig_atual.date() if pd.notnull(val_deslig_atual) else hoje
-                            e_data_deslig = st.date_input("Data do Desligamento:", value=val_deslig_def, format="DD/MM/YYYY")
+                        ddes = None
+                        if est == "Desligado":
+                            st.warning("⚠️ Informe a data do desligamento:")
+                            vd_at = pd.to_datetime(row_e.get('Data_Desligamento'), errors='coerce')
+                            ddes = st.date_input("Data Desligamento:", value=vd_at.date() if pd.notnull(vd_at) else hoje, format="DD/MM/YYYY")
 
-                        btn_salvar_edit_c = st.form_submit_button("✏️ Atualizar Cadastro")
-                        if btn_salvar_edit_c:
-                            df.loc[idx_c, 'Matricula'] = str(e_mat).strip()
-                            df.loc[idx_c, 'Funcionário'] = str(e_nome).strip()
-                            df.loc[idx_c, 'Setor'] = str(e_setor).strip()
-                            df.loc[idx_c, 'Cargo'] = str(e_cargo).strip()
-                            df.loc[idx_c, 'Admissão'] = e_adm.strftime('%d/%m/%Y')
-                            df.loc[idx_c, 'Status'] = str(e_status)
-                            df.loc[idx_c, 'Ultimas_Ferias'] = str(e_ult_ferias).strip() if e_ult_ferias.strip() else None
-                            if e_status == "Desligado" and e_data_deslig:
-                                df.loc[idx_c, 'Data_Desligamento'] = e_data_deslig.strftime('%d/%m/%Y')
+                        if st.form_submit_button("Atualizar"):
+                            df.loc[idx_el, 'Matricula'] = em
+                            df.loc[idx_el, 'Funcionário'] = en
+                            df.loc[idx_el, 'Setor'] = eset
+                            df.loc[idx_el, 'Cargo'] = ecar
+                            df.loc[idx_el, 'Admissão'] = ead.strftime('%d/%m/%Y')
+                            df.loc[idx_el, 'Status'] = est
+                            df.loc[idx_el, 'Ultimas_Ferias'] = euf or None
+                            if est == "Desligado" and ddes:
+                                df.loc[idx_el, 'Data_Desligamento'] = ddes.strftime('%d/%m/%Y')
+                                registrar_historico(em, en, "Desligamento", f"Colaborador desligado em {ddes.strftime('%d/%m/%Y')}", nome_usuario)
                             else:
-                                df.loc[idx_c, 'Data_Desligamento'] = None
-
+                                df.loc[idx_el, 'Data_Desligamento'] = None
+                                registrar_historico(em, en, "Atualização Cadastral", f"Dados atualizados para status {est}", nome_usuario)
+                            
                             salvar_dados(df)
-                            st.toast("✅ Cadastro de colaborador atualizado!", icon="💾")
+                            st.toast("Atualizado com sucesso!")
                             st.rerun()
 
         elif menu == "⚙️ Criar / Gerenciar Usuários":
-            st.subheader("⚙️ Painel do Administrador - Gestão de Usuários & Permissões")
+            st.subheader("⚙️ Gestão de Usuários")
             df_usuarios = carregar_usuarios()
-            tab_novo_u, tab_edit_u, tab_lista_u = st.tabs(["➕ Criar Novo Usuário", "✏️ Editar / Módulos", "📋 Lista de Acessos"])
-            with tab_novo_u:
-                with st.form("form_novo_usuario", clear_on_submit=True):
-                    c_u1, c_u2 = st.columns(2)
-                    nome_u = c_u1.text_input("Nome Completo do Gestor:")
-                    login_u = c_u2.text_input("Login de Usuário (Ex: joao.silva):").strip().lower()
-                    c_e1, c_e2, c_t1 = st.columns([1.5, 1.5, 1])
-                    email_u = c_e1.text_input("E-mail de Acesso:").strip().lower()
-                    senha_u = c_e2.text_input("Senha de Acesso:", type="password")
-                    tel_u = c_t1.text_input("WhatsApp (DDD+Num):", value="")
-                    c_p1, c_p2 = st.columns(2)
-                    perfil_u = c_p1.selectbox("Perfil Geral:", ["Gestor", "Admin"])
-                    enviar_mail_chk = c_p2.checkbox("📧 Enviar dados de acesso também por e-mail?", value=False)
-                    st.markdown("##### 📌 Selecione os Módulos Liberados para este Usuário:")
-                    modulos_selecionados = []
-                    cols_mod = st.columns(2)
-                    for idx_m, mod_nome in enumerate(TODOS_MODULOS):
-                        with cols_mod[idx_m % 2]:
-                            default_val = True if perfil_u == "Admin" or mod_nome in ["Dashboard & Alertas", "Chamada & Faltas do Dia", "🤖 Assistente IA (DP & Gestão)"] else False
-                            if st.checkbox(mod_nome, value=default_val, key=f"mod_cad_{idx_m}"):
-                                modulos_selecionados.append(mod_nome)
-                    btn_cad_u = st.form_submit_button("💾 Criar Usuário")
-                    if btn_cad_u and nome_u and login_u and senha_u:
-                        if login_u in df_usuarios['Usuario'].astype(str).str.lower().values:
-                            st.error(f"❌ O login '{login_u}' já existe!")
-                        elif not modulos_selecionados:
-                            st.warning("⚠️ Selecione pelo menos um módulo.")
+            t_nu, t_eu, t_lu = st.tabs(["➕ Novo", "✏️ Editar", "📋 Lista"])
+            with t_nu:
+                with st.form("f_nu", clear_on_submit=True):
+                    nu1, nu2 = st.columns(2)
+                    nn = nu1.text_input("Nome:")
+                    nl = nu2.text_input("Login:").lower()
+                    ne1, ne2, nt1 = st.columns([1.5, 1.5, 1])
+                    ne = ne1.text_input("E-mail:").lower()
+                    ns = ne2.text_input("Senha:", type="password")
+                    nt = nt1.text_input("WhatsApp:")
+                    np1, np2 = st.columns(2)
+                    nperf = np1.selectbox("Perfil:", ["Gestor", "Admin"])
+                    env_m = np2.checkbox("Enviar e-mail?", value=False)
+                    
+                    mods_s = []
+                    cm = st.columns(2)
+                    for i_m, mn in enumerate(TODOS_MODULOS):
+                        with cm[i_m % 2]:
+                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}"):
+                                mods_s.append(mn)
+                    if st.form_submit_button("Criar Usuário") and nn and nl and ns:
+                        if nl in df_usuarios['Usuario'].astype(str).str.lower().values:
+                            st.error("Login já existe!")
                         else:
-                            str_mods = ",".join(modulos_selecionados)
-                            novo_usr = {"Nome": str(nome_u).strip(), "Usuario": str(login_u).strip(), "Email": str(email_u).strip(), "Senha": str(senha_u).strip(), "Perfil": str(perfil_u), "Modulos": str_mods, "Telefone": str(tel_u).strip()}
-                            df_usuarios = pd.concat([df_usuarios, pd.DataFrame([novo_usr])], ignore_index=True)
+                            nu_dict = {"Nome": nn, "Usuario": nl, "Email": ne, "Senha": ns, "Perfil": nperf, "Modulos": ",".join(mods_s), "Telefone": nt}
+                            df_usuarios = pd.concat([df_usuarios, pd.DataFrame([nu_dict])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
-                            st.toast(f"✅ Usuário '{nome_u}' criado com sucesso!", icon="🎉")
-                            if tel_u:
-                                link_wa_novo = gerar_link_whatsapp(tel_u, nome_u, email_u if email_u else login_u, senha_u)
-                                st.markdown(f"👉 **[📲 Clique aqui para enviar o acesso por WhatsApp]({link_wa_novo})**")
-                            if enviar_mail_chk and email_u:
-                                ok_m, msg_m = enviar_email_acesso(email_u, nome_u, email_u, senha_u)
-                                if ok_m:
-                                    st.toast("📧 E-mail de acesso enviado com sucesso!", icon="✉️")
-                                else:
-                                    st.info(f"ℹ️ {msg_m}")
-            with tab_edit_u:
-                lista_logins = sorted(df_usuarios['Usuario'].astype(str).unique())
-                usr_sel_edit = st.selectbox("Selecione o Usuário para Editar:", lista_logins)
-                if usr_sel_edit:
-                    idx_u = df_usuarios[df_usuarios['Usuario'].astype(str) == usr_sel_edit].index[0]
-                    usr_dados = df_usuarios.loc[idx_u]
-                    with st.form("form_edit_usr"):
-                        st.info(f"Editando dados e permissões do usuário **{usr_dados['Nome']}**")
-                        e_u1, e_u2 = st.columns(2)
-                        e_nome = e_u1.text_input("Nome Completo:", value=str(usr_dados['Nome']))
-                        e_email = e_u2.text_input("E-mail:", value=str(usr_dados.get('Email', '')))
-                        e_s1, e_s2, e_t1 = st.columns([1.2, 1.2, 1])
-                        e_senha = e_s1.text_input("Senha:", value=str(usr_dados['Senha']), type="password")
-                        opts_p = ["Gestor", "Admin"]
-                        idx_p = opts_p.index(usr_dados['Perfil']) if usr_dados['Perfil'] in opts_p else 0
-                        e_perfil = e_s2.selectbox("Perfil Geral:", opts_p, index=idx_p)
-                        e_tel = e_t1.text_input("WhatsApp (DDD+Num):", value=str(usr_dados.get('Telefone', '')))
-                        reenviar_mail_chk = st.checkbox("📧 Reenviar e-mail com os novos dados de acesso?", value=False)
-                        st.markdown("##### 📌 Módulos Liberados:")
-                        mods_atuais = [m.strip() for m in str(usr_dados.get('Modulos', '')).split(',') if m.strip()]
-                        e_modulos = []
-                        cols_e_mod = st.columns(2)
-                        for idx_m, mod_nome in enumerate(TODOS_MODULOS):
-                            with cols_e_mod[idx_m % 2]:
-                                is_chk = mod_nome in mods_atuais
-                                if st.checkbox(mod_nome, value=is_chk, key=f"mod_edit_{idx_m}"):
-                                    e_modulos.append(mod_nome)
-                        btn_salvar_edit = st.form_submit_button("✏️ Atualizar Usuário e Permissões")
-                        if btn_salvar_edit:
-                            df_usuarios.loc[idx_u, 'Nome'] = str(e_nome).strip()
-                            df_usuarios.loc[idx_u, 'Email'] = str(e_email).strip()
-                            df_usuarios.loc[idx_u, 'Senha'] = str(e_senha).strip()
-                            df_usuarios.loc[idx_u, 'Perfil'] = str(e_perfil)
-                            df_usuarios.loc[idx_u, 'Modulos'] = ",".join(e_modulos)
-                            df_usuarios.loc[idx_u, 'Telefone'] = str(e_tel).strip()
+                            st.toast("Usuário criado!")
+                            if nt:
+                                st.markdown(f"👉 **[📲 Enviar Acesso WhatsApp]({gerar_link_whatsapp(nt, nn, ne or nl, ns)})**")
+
+            with t_eu:
+                us_l = sorted(df_usuarios['Usuario'].astype(str).unique())
+                sel_u = st.selectbox("Selecione Usuário:", us_l)
+                if sel_u:
+                    iu = df_usuarios[df_usuarios['Usuario'].astype(str) == sel_u].index[0]
+                    ur = df_usuarios.loc[iu]
+                    with st.form("f_eu"):
+                        un = st.text_input("Nome:", value=ur['Nome'])
+                        uem = st.text_input("E-mail:", value=ur['Email'])
+                        use = st.text_input("Senha:", value=ur['Senha'], type="password")
+                        upe = st.selectbox("Perfil:", ["Gestor", "Admin"], index=0 if ur['Perfil'] == "Gestor" else 1)
+                        ute = st.text_input("WhatsApp:", value=ur.get('Telefone', ''))
+                        
+                        ed_mods = []
+                        c_emd = st.columns(2)
+                        at_mods = [m.strip() for m in str(ur.get('Modulos', '')).split(',')]
+                        for i_mm, m_nm in enumerate(TODOS_MODULOS):
+                            with c_emd[i_mm % 2]:
+                                if st.checkbox(m_nm, value=m_nm in at_mods, key=f"med_{i_mm}"):
+                                    ed_mods.append(m_nm)
+                        if st.form_submit_button("Atualizar Usuário"):
+                            df_usuarios.loc[iu, 'Nome'] = un
+                            df_usuarios.loc[iu, 'Email'] = uem
+                            df_usuarios.loc[iu, 'Senha'] = use
+                            df_usuarios.loc[iu, 'Perfil'] = upe
+                            df_usuarios.loc[iu, 'Modulos'] = ",".join(ed_mods)
+                            df_usuarios.loc[iu, 'Telefone'] = ute
                             salvar_usuarios(df_usuarios)
-                            if str(usr_dados['Usuario']).lower() == str(st.session_state.get("usuario_login")).lower():
-                                st.session_state["usuario_nome"] = str(e_nome).strip()
-                                st.session_state["perfil"] = str(e_perfil)
-                                st.session_state["usuario_modulos"] = e_modulos
-                            st.toast(f"✅ Permissões de '{e_nome}' atualizadas!", icon="💾")
-                            if e_tel:
-                                link_wa_edit = gerar_link_whatsapp(e_tel, e_nome, e_email if e_email else e_nome, e_senha)
-                                st.markdown(f"👉 **[📲 Clique aqui para enviar os novos dados via WhatsApp]({link_wa_edit})**")
-                            if reenviar_mail_chk and e_email:
-                                ok_m, msg_m = enviar_email_acesso(e_email, e_nome, e_email, e_senha)
-                                if ok_m:
-                                    st.toast("📧 E-mail atualizado enviado!", icon="✉️")
-                                else:
-                                    st.info(f"ℹ️ {msg_m}")
-            with tab_lista_u:
-                st.markdown("##### 👥 Usuários e Módulos Cadastrados:")
-                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Email', 'Telefone', 'Perfil', 'Modulos']], use_container_width=True)
-                st.markdown("---")
-                st.markdown("##### 📲 Envio Rápido de Convite por WhatsApp")
-                usr_wa_sel = st.selectbox("Selecione o usuário para enviar acesso por WhatsApp:", df_usuarios['Usuario'].dropna().unique(), key="sel_wa_u")
-                if usr_wa_sel:
-                    u_row = df_usuarios[df_usuarios['Usuario'] == usr_wa_sel].iloc[0]
-                    u_tel = u_row.get('Telefone', '')
-                    if u_tel and u_tel != 'nan':
-                        l_wa_direto = gerar_link_whatsapp(u_tel, u_row['Nome'], u_row['Email'] if u_row['Email'] else u_row['Usuario'], u_row['Senha'])
-                        st.markdown(f"👉 **[📲 Abrir WhatsApp e Enviar Acesso para {u_row['Nome']}]({l_wa_direto})**")
-                    else:
-                        st.info("⚠️ Este usuário não possui um número de WhatsApp cadastrado.")
-                st.markdown("---")
-                st.markdown("##### 🗑️ Excluir Acesso de Usuário")
-                usr_del = st.selectbox("Selecione o usuário para remover:", df_usuarios['Usuario'].dropna().unique(), key="sel_del_u")
-                if st.button("❌ Excluir Usuário Selecionado", type="primary"):
-                    if usr_del == "admin":
-                        st.error("⚠️ O usuário padrão 'admin' não pode ser excluído.")
-                    else:
-                        df_usuarios = df_usuarios[df_usuarios['Usuario'] != usr_del].reset_index(drop=True)
-                        salvar_usuarios(df_usuarios)
-                        st.toast(f"Acesso de '{usr_del}' excluído!", icon="🗑️")
-                        st.rerun()
+                            st.toast("Atualizado!")
+                            st.rerun()
+
+            with t_lu:
+                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Email', 'Telefone', 'Perfil']], use_container_width=True)
 
         elif menu == "📥 Importar Nova Base":
-            st.subheader("📥 Atualizar Base Geral de Colaboradores (.xlsx)")
-            arquivo_upload = st.file_uploader("Arraste ou selecione o arquivo .xlsx", type=["xlsx"])
-            if arquivo_upload is not None and st.button("Confirmar e Substituir Base"):
-                df_novo_up = pd.read_excel(arquivo_upload)
-                df_novo_up.to_excel(ARQUIVO_DADOS, index=False)
-                st.toast("Nova base importada com sucesso!", icon="📥")
+            st.subheader("📥 Importar Nova Base (.xlsx)")
+            up_f = st.file_uploader("Arquivo", type=["xlsx"])
+            if up_f and st.button("Substituir Base"):
+                pd.read_excel(up_f).to_excel(ARQUIVO_DADOS, index=False)
+                st.toast("Base importada!")
                 st.rerun()
