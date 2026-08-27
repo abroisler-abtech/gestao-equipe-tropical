@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — com perfis (Admin e Gestor) e armazenamento local.
+"""Painel de Gestão & DP — correção do campo de desligamento e perfis.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -146,7 +146,9 @@ def para_data(valor: object) -> Optional[date]:
         return valor.date()
     if isinstance(valor, date):
         return valor
-    convertido = pd.to_datetime(str(valor), dayfirst=True, errors="coerce")
+    convertido = pd.to_datetime(str(valor), dayfirst=False, errors="coerce")
+    if pd.isna(convertido):
+        convertido = pd.to_datetime(str(valor), dayfirst=True, errors="coerce")
     return None if pd.isna(convertido) else convertido.date()
 
 
@@ -745,9 +747,16 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
             cargo = c4.text_input("Cargo", value=pessoa["cargo"]).strip()
             c5, c6, c7 = st.columns(3)
             admissao = c5.date_input("Admissão", value=para_data(pessoa["admissao"]) or date.today())
-            status = c6.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(pessoa["status"]) if pessoa["status"] in STATUS_COLABORADOR else 0)
-            decisao = c7.selectbox("Experiência", ("", "Em avaliação", "Efetivado", "Não efetivado"), index=("", "Em avaliação", "Efetivado", "Não efetivado").index(pessoa["decisao_experiencia"]) if pessoa["decisao_experiencia"] in ("", "Em avaliação", "Efetivado", "Não efetivado") else 0)
-            data_desligamento = st.date_input("Data do desligamento", value=para_data(pessoa["data_desligamento"]) or date.today(), disabled=status != "Desligado")
+            
+            status_atual = pessoa["status"] if pessoa["status"] in STATUS_COLABORADOR else "Ativo"
+            status = c6.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(status_atual))
+            
+            decisao_atual = pessoa["decisao_experiencia"] if pessoa["decisao_experiencia"] in ("", "Em avaliação", "Efetivado", "Não efetivado") else ""
+            decisao = c7.selectbox("Experiência", ("", "Em avaliação", "Efetivado", "Não efetivado"), index=("", "Em avaliação", "Efetivado", "Não efetivado").index(decisao_atual))
+            
+            dt_deslig = para_data(pessoa["data_desligamento"]) or date.today()
+            data_desligamento = st.date_input("Data do desligamento", value=dt_deslig)
+            
             if st.form_submit_button("Atualizar"):
                 nova_matricula = limpar_matricula(nova_matricula)
                 duplicada = (colaboradores["matricula"] == nova_matricula) & (colaboradores.index != indice)
@@ -915,7 +924,6 @@ def main() -> None:
     nome = st.session_state["usuario"]
     perfil = st.session_state["perfil"]
     
-    # Se for Admin, libera tudo; se for Gestor, restringe módulos administrativos
     modulos = list(TODOS_MODULOS) if perfil == "Admin" else [m for m in TODOS_MODULOS if m not in MODULOS_ADMIN]
 
     st.sidebar.title("🍊 Gestão & DP")
