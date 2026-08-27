@@ -26,9 +26,9 @@ TODOS_MODULOS = [
     "Chamada & Faltas do Dia",
     "👥 Gestão de Colaboradores",
     "⏳ Contratos de Experiência",
+    "📅 Escala Inteligente de Férias",
     "📧 Enviar Ocorrência ao RH",
     "👤 Ficha Individual do Colaborador",
-    "📅 Escala Inteligente de Férias",
     "🤖 Assistente IA de DP",
     "⚙️ Gerenciamento de Usuários"
 ]
@@ -393,7 +393,17 @@ elif escolha == "⏳ Contratos de Experiência":
     else:
         st.warning("Nenhum colaborador cadastrado.")
 
-# --- MÓDULO 5: ENVIAR OCORRÊNCIA AO RH ---
+# --- MÓDULO 5: ESCALA INTELIGENTE DE FÉRIAS ---
+elif escolha == "📅 Escala Inteligente de Férias":
+    st.title("📅 Escala Inteligente de Férias")
+    st.markdown("Planejamento completo, acompanhamento de períodos aquisitivos e prazos legais de férias da equipe.")
+    
+    if not df_equipe.empty:
+        st.dataframe(df_equipe[['Matricula', 'Funcionário', 'Setor', 'Admissão', 'Ultimas_Ferias', 'Status']], use_container_width=True)
+    else:
+        st.warning("Nenhum dado de equipe carregado.")
+
+# --- MÓDULO 6: ENVIAR OCORRÊNCIA AO RH ---
 elif escolha == "📧 Enviar Ocorrência ao RH":
     st.title("📧 Envio de Ocorrência / Relatório ao RH")
     st.markdown("Dispare e-mails formatados diretamente para o departamento de Recursos Humanos.")
@@ -412,7 +422,7 @@ elif escolha == "📧 Enviar Ocorrência ao RH":
             else:
                 st.warning("Preencha o e-mail do RH e os detalhes da ocorrência.")
 
-# --- MÓDULO 6: FICHA INDIVIDUAL DO COLABORADOR ---
+# --- MÓDULO 7: FICHA INDIVIDUAL DO COLABORADOR ---
 elif escolha == "👤 Ficha Individual do Colaborador":
     st.title("👤 Ficha Individual do Colaborador")
     
@@ -440,16 +450,6 @@ elif escolha == "👤 Ficha Individual do Colaborador":
                 st.info("Nenhuma ocorrência registrada para este colaborador.")
         else:
             st.info("Nenhuma ocorrência registrada no sistema.")
-
-# --- MÓDULO 7: ESCALA INTELIGENTE DE FÉRIAS ---
-elif escolha == "📅 Escala Inteligente de Férias":
-    st.title("📅 Escala Inteligente de Férias")
-    st.info("Planejamento, acompanhamento de períodos aquisitivos e programação de férias da equipe.")
-    
-    if not df_equipe.empty:
-        st.dataframe(df_equipe[['Matricula', 'Funcionário', 'Setor', 'Admissão', 'Ultimas_Ferias', 'Status']], use_container_width=True)
-    else:
-        st.warning("Nenhum dado de equipe carregado.")
 
 # --- MÓDULO 8: ASSISTENTE IA DE DP ---
 elif escolha == "🤖 Assistente IA de DP":
