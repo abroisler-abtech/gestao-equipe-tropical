@@ -140,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.4.2 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.4.3 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -221,6 +221,8 @@ def carregar_dados():
                     df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
                 if 'Data_Desligamento' not in df.columns:
                     df['Data_Desligamento'] = None
+                else:
+                    df['Data_Desligamento'] = df['Data_Desligamento'].astype(str).replace('None', '').replace('nan', '')
                 if 'Matricula' in df.columns:
                     df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
 
@@ -258,6 +260,8 @@ def carregar_dados():
             df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
         if 'Data_Desligamento' not in df.columns:
             df['Data_Desligamento'] = None
+        else:
+            df['Data_Desligamento'] = df['Data_Desligamento'].astype(str).replace('None', '').replace('nan', '')
         if 'Matricula' in df.columns:
             df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
 
@@ -272,6 +276,9 @@ def salvar_dados(df_salvar):
     
     if 'Matricula' in df_limpo.columns:
         df_limpo['Matricula'] = df_limpo['Matricula'].astype(str).str.replace('.0', '', regex=False)
+    
+    for c_col in df_limpo.columns:
+        df_limpo[c_col] = df_limpo[c_col].astype(str).replace(['nan', 'None', 'NaT', ''], None)
     
     df_limpo.to_excel(ARQUIVO_DADOS, index=False)
     
@@ -551,7 +558,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.2**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.3**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -618,7 +625,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.2 (Data de Desligamento Ajustada)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.3 (Correção Definitiva Desligamento)**")
     st.divider()
 
     if not df.empty:
@@ -699,28 +706,28 @@ if verificar_senha():
 
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Quadro", len(df_filtrado))
-            if c1.button("🔍 Ver Quadro", key="btn_quadro_v12"):
+            if c1.button("🔍 Ver Quadro", key="btn_quadro_v13"):
                 exibir_modal_detalhes("Quadro Geral de Colaboradores", df_filtrado[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão'] if c in df_filtrado.columns]])
             
             c2.metric("Ativos", len(df_ativos))
-            if c2.button("🔍 Ver Ativos", key="btn_ativos_v12"):
+            if c2.button("🔍 Ver Ativos", key="btn_ativos_v13"):
                 exibir_modal_detalhes("Colaboradores Ativos no Quadro", df_ativos[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos.columns]])
 
             c3.metric("Em Férias", len(df_ferias_st))
-            if c3.button("🔍 Ver Férias", key="btn_ferias_v12"):
+            if c3.button("🔍 Ver Férias", key="btn_ferias_v13"):
                 exibir_modal_detalhes("Colaboradores em Gozo de Férias", df_ferias_st[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias'] if c in df_ferias_st.columns]])
 
             c4.metric("Atest./Afast./INSS", len(df_afastados))
-            if c4.button("🔍 Ver Afastados", key="btn_afastados_v12"):
+            if c4.button("🔍 Ver Afastados", key="btn_afastados_v13"):
                 exibir_modal_detalhes("Colaboradores Afastados / Atestado / INSS", df_afastados[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status'] if c in df_afastados.columns]])
 
             c5.metric("Faltas Hoje", qtd_faltantes_hoje)
-            if c5.button("🔍 Ver Faltas", key="btn_faltas_v12"):
+            if c5.button("🔍 Ver Faltas", key="btn_faltas_v13"):
                 exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
 
             niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
             c6.metric("Aniversariantes", len(niver_mes))
-            if c6.button("🔍 Ver Aniversár.", key="btn_niver_v12"):
+            if c6.button("🔍 Ver Aniversár.", key="btn_niver_v13"):
                 exibir_modal_detalhes(f"Aniversariantes do Mês ({hoje.strftime('%m/%Y')})", niver_mes[[c for c in ['Nascimento', 'Funcionário', 'Setor', 'Cargo'] if c in niver_mes.columns]])
 
         elif menu == "🤖 Assistente IA (DP & Gestão)":
@@ -760,7 +767,7 @@ if verificar_senha():
                 if colabs_operacionais.empty:
                     st.warning("Nenhum colaborador operacional ativo.")
                 else:
-                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v12")
+                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v13")
                     data_chamada = pd.to_datetime(data_chamada_txt, dayfirst=True, errors='coerce').date() or hoje
                     
                     faltas_existentes = df_faltas[(df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado)] if not df_faltas.empty else pd.DataFrame()
@@ -962,7 +969,7 @@ if verificar_senha():
 
             with t_ed:
                 colabs_e = sorted(df['Funcionário'].dropna().unique())
-                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v12")
+                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v13")
                 if sel_e:
                     idx_el = df[df['Funcionário'] == sel_e].index[0]
                     row_e = df.loc[idx_el]
@@ -986,7 +993,7 @@ if verificar_senha():
                             st_at_idx = idx_opt
                             break
                             
-                    est = ed2.selectbox("Status:", opts_st, index=st_at_idx, key="sb_status_desligamento_v12")
+                    est = ed2.selectbox("Status:", opts_st, index=st_at_idx, key="sb_status_desligamento_v13")
                     
                     val_uf_atual = row_e.get('Ultimas_Ferias')
                     val_uf_str = str(val_uf_atual) if pd.notnull(val_uf_atual) and str(val_uf_atual) not in ['nan', 'None', ''] else ""
@@ -997,7 +1004,7 @@ if verificar_senha():
                         st.warning("⚠️ Informe a data do desligamento abaixo:")
                         vd_at = row_e.get('Data_Desligamento')
                         vd_str = str(vd_at) if pd.notnull(vd_at) and str(vd_at) not in ['nan', 'None', ''] else hoje.strftime('%d/%m/%Y')
-                        ddes_txt = st.text_input("Data Desligamento (DD/MM/AAAA):", value=vd_str, key="txt_data_deslig_v12")
+                        ddes_txt = st.text_input("Data Desligamento (DD/MM/AAAA):", value=vd_str, key="txt_data_deslig_v13")
 
                     if st.button("Atualizar Colaborador"):
                         dt_adm_parsed = pd.to_datetime(ead_txt, dayfirst=True, errors='coerce').date() or hoje
@@ -1011,12 +1018,15 @@ if verificar_senha():
                         df.loc[idx_el, 'Status'] = str(est)
                         df.loc[idx_el, 'Ultimas_Ferias'] = dt_fer_parsed
                         
+                        if 'Data_Desligamento' not in df.columns:
+                            df['Data_Desligamento'] = None
+                        
                         if est == "Desligado" and ddes_txt:
                             dt_des_parsed = pd.to_datetime(ddes_txt, dayfirst=True, errors='coerce').date() or hoje
-                            df.loc[idx_el, 'Data_Desligamento'] = dt_des_parsed.strftime('%d/%m/%Y')
+                            df.at[idx_el, 'Data_Desligamento'] = str(dt_des_parsed.strftime('%d/%m/%Y'))
                             registrar_historico(em, en, "Desligamento", f"Colaborador desligado em {dt_des_parsed.strftime('%d/%m/%Y')}", nome_usuario)
                         else:
-                            df.loc[idx_el, 'Data_Desligamento'] = None
+                            df.at[idx_el, 'Data_Desligamento'] = None
                             registrar_historico(em, en, "Atualização Cadastral", f"Dados atualizados para status {est}", nome_usuario)
                         
                         salvar_dados(df)
@@ -1043,7 +1053,7 @@ if verificar_senha():
                     cm = st.columns(2)
                     for i_m, mn in enumerate(TODOS_MODULOS):
                         with cm[i_m % 2]:
-                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v12"):
+                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v13"):
                                 mods_s.append(mn)
                     if st.form_submit_button("Criar Usuário") and nn and nl and ns:
                         if nl in df_usuarios['Usuario'].astype(str).str.lower().values:
