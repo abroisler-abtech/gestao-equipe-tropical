@@ -4,6 +4,6 @@ plotly
 gspread
 reportlab
 openpyxl
-google-genai
+google-generativeai
 st-gsheets-connection
 supabase
