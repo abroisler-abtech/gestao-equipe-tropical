@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — versão final sem colunas ausentes no Supabase.
+"""Painel de Gestão & DP — versão 100% compatível com a tabela básica do Supabase.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -53,7 +53,7 @@ COLUNAS: dict[str, list[str]] = {
         "status", "ultimas_ferias", "data_retorno_ferias", "decisao_experiencia",
         "data_desligamento",
     ],
-    "usuarios": ["usuario", "nome", "senha_hash", "perfil", "modulos"],
+    "usuarios": ["usuario", "nome", "senha_hash", "perfil"],
     "faltas": [
         "registro_id", "matricula", "funcionario", "setor", "data", "tipo", "dias",
         "cid", "motivo", "origem",
@@ -104,7 +104,7 @@ ALIAS_COLUNAS = {
     },
     "usuarios": {
         "usuario": "usuario", "usuário": "usuario", "login": "usuario", "nome": "nome",
-        "senha_hash": "senha_hash", "senha": "senha_legada", "perfil": "perfil", "modulos": "modulos", "módulos": "modulos",
+        "senha_hash": "senha_hash", "senha": "senha_legada", "perfil": "perfil",
     },
     "faltas": {
         "registro_id": "registro_id", "matricula": "matricula", "matrícula": "matricula",
@@ -241,7 +241,7 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
                 if not limpar_texto(df.at[indice, "senha_hash"]) and limpar_texto(senha_legada):
                     df.at[indice, "senha_hash"] = hash_senha(limpar_texto(senha_legada))
                     migrou_senha = True
-        for coluna in ("usuario", "nome", "senha_hash", "perfil", "modulos"):
+        for coluna in ("usuario", "nome", "senha_hash", "perfil"):
             df[coluna] = df[coluna].map(limpar_texto)
         df["usuario"] = df["usuario"].str.lower()
         df["perfil"] = df["perfil"].replace("", "Gestor")
@@ -358,7 +358,7 @@ def registrar_historico(matricula: str, funcionario: str, tipo: str, descricao: 
 def iniciar_estado_sessao() -> None:
     padroes = {
         "autenticado": False, "usuario": "", "nome_usuario": "", "perfil": "",
-        "modulos": [], "fonte_colaboradores": "", "tentativas_login": 0,
+        "fonte_colaboradores": "", "tentativas_login": 0,
     }
     for chave, valor in padroes.items():
         st.session_state.setdefault(chave, valor)
@@ -369,7 +369,7 @@ def provisionar_admin_automatico(usuarios: pd.DataFrame) -> pd.DataFrame:
         return usuarios
     novo = pd.DataFrame([{
         "usuario": "admin", "nome": "Administrador",
-        "senha_hash": hash_senha("030711"), "perfil": "Admin", "modulos": ",".join(TODOS_MODULOS),
+        "senha_hash": hash_senha("030711"), "perfil": "Admin",
     }])
     salvar_entidade("usuarios", novo, False)
     return novo
@@ -401,18 +401,16 @@ def tela_login() -> bool:
             return False
 
         registro = candidato.iloc[0]
-        modulos = [modulo.strip() for modulo in limpar_texto(registro["modulos"]).split(",") if modulo.strip()]
         st.session_state.update({
             "autenticado": True, "usuario": registro["usuario"], "nome_usuario": registro["nome"],
-            "perfil": registro["perfil"], "modulos": list(TODOS_MODULOS) if registro["perfil"] == "Admin" else modulos,
-            "tentativas_login": 0,
+            "perfil": registro["perfil"], "tentativas_login": 0,
         })
         st.rerun()
     return False
 
 
 def encerrar_sessao() -> None:
-    for chave in ("autenticado", "usuario", "nome_usuario", "perfil", "modulos", "tentativas_login"):
+    for chave in ("autenticado", "usuario", "nome_usuario", "perfil", "tentativas_login"):
         st.session_state.pop(chave, None)
     st.rerun()
 
@@ -838,7 +836,6 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
             usuario = c2.text_input("Login", help="Será convertido para letras minúsculas.").strip().lower()
             senha = st.text_input("Senha inicial", type="password")
             perfil = st.selectbox("Perfil", ("Gestor", "Admin"))
-            modulos = st.multiselect("Módulos liberados", TODOS_MODULOS, default=list(TODOS_MODULOS) if perfil == "Admin" else ["Dashboard & Alertas", "Chamada & Faltas do Dia"])
             if st.form_submit_button("Criar usuário"):
                 if not nome or not usuario or not senha:
                     st.error("Nome, login e senha são obrigatórios.")
@@ -847,7 +844,7 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
                 else:
                     novo = {
                         "usuario": usuario, "nome": nome, "senha_hash": hash_senha(senha),
-                        "perfil": perfil, "modulos": ",".join(TODOS_MODULOS if perfil == "Admin" else modulos),
+                        "perfil": perfil,
                     }
                     if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
                         st.success("Usuário criado com sucesso!")
@@ -940,8 +937,9 @@ def main() -> None:
     st.session_state["fonte_colaboradores"] = fonte
     nome = st.session_state["nome_usuario"]
     perfil = st.session_state["perfil"]
-    modulos = st.session_state["modulos"] or ["Dashboard & Alertas"]
-    modulos = [modulo for modulo in modulos if modulo not in MODULOS_ADMIN or perfil == "Admin"]
+    
+    # Se for Admin, libera tudo; se for gestor, libera tudo exceto admin se necessário
+    modulos = list(TODOS_MODULOS) if perfil == "Admin" else [m for m in TODOS_MODULOS if m not in MODULOS_ADMIN]
 
     st.sidebar.title("🍊 Gestão & DP")
     st.sidebar.caption(f"{nome} · {perfil}")
