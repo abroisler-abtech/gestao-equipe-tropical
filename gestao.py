@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 import google.generativeai as genai
+from supabase import create_client, Client
 
 importlib.reload(ferias)
 
@@ -20,12 +21,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- CONFIGURAÇÃO DA API DO GEMINI (IA INTEGRADA) ---
+# --- CONEXÃO COM O SUPABASE E CONFIGURAÇÃO DA IA ---
 try:
-    gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
-    if not gemini_api_key:
-        gemini_api_key = os.getenv("GEMINI_API_KEY", "")
-
+    gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
         modelo_ia = genai.GenerativeModel('gemini-1.5-pro')
@@ -34,6 +32,18 @@ try:
         ia_disponivel = False
 except Exception:
     ia_disponivel = False
+
+# Inicialização do Cliente Supabase
+try:
+    supabase_url = st.secrets.get("SUPABASE_URL", "")
+    supabase_key = st.secrets.get("SUPABASE_KEY", "")
+    if supabase_url and supabase_key:
+        supabase: Client = create_client(supabase_url, supabase_key)
+        supabase_disponivel = True
+    else:
+        supabase_disponivel = False
+except Exception:
+    supabase_disponivel = False
 
 # --- ESTILOS CSS PERSONALIZADOS ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
@@ -128,7 +138,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.0 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.1 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -172,7 +182,22 @@ def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso)
     except Exception as e:
         return False, str(e)
 
+# --- GERENCIAMENTO DE USUÁRIOS COM SUPABASE ---
 def carregar_usuarios():
+    if supabase_disponivel:
+        try:
+            response = supabase.table("usuarios").select("*").execute()
+            if response.data:
+                df_u = pd.DataFrame(response.data)
+                if 'id' in df_u.columns:
+                    df_u = df_u.drop(columns=['id'])
+                if 'created_at' in df_u.columns:
+                    df_u = df_u.drop(columns=['created_at'])
+                return df_u
+        except Exception:
+            pass
+
+    # Fallback para Excel local
     if os.path.exists(ARQUIVO_USUARIOS):
         df_u = pd.read_excel(ARQUIVO_USUARIOS)
         df_u.columns = df_u.columns.str.strip()
@@ -196,6 +221,52 @@ def carregar_usuarios():
 def salvar_usuarios(df_u):
     df_u = df_u.astype(str)
     df_u.to_excel(ARQUIVO_USUARIOS, index=False)
+    
+    if supabase_disponivel:
+        try:
+            supabase.table("usuarios").delete().neq("id", 0).execute()
+            registros = df_u.to_dict(orient="records")
+            if registros:
+                supabase.table("usuarios").insert(registros).execute()
+        except Exception as e:
+            st.toast(f"⚠️ Erro ao sincronizar usuários no Supabase: {e}", icon="⚠️")
+
+# --- GERENCIAMENTO DE FALTAS COM SUPABASE ---
+def carregar_faltas():
+    if supabase_disponivel:
+        try:
+            response = supabase.table("faltas").select("*").execute()
+            if response.data:
+                df_f = pd.DataFrame(response.data)
+                if 'id' in df_f.columns:
+                    df_f = df_f.drop(columns=['id'])
+                if 'created_at' in df_f.columns:
+                    df_f = df_f.drop(columns=['created_at'])
+                df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
+                return df_f
+        except Exception:
+            pass
+
+    if os.path.exists(ARQUIVO_FALTAS):
+        df_f = pd.read_excel(ARQUIVO_FALTAS)
+        df_f.columns = df_f.columns.str.strip()
+        df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
+        return df_f
+    else:
+        return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"])
+
+def salvar_faltas(df_f):
+    cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
+    df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
+
+    if supabase_disponivel:
+        try:
+            supabase.table("faltas").delete().neq("id", 0).execute()
+            registros = df_f[cols_salvar].to_dict(orient="records")
+            if registros:
+                supabase.table("faltas").insert(registros).execute()
+        except Exception as e:
+            st.toast(f"⚠️ Erro ao sincronizar faltas no Supabase: {e}", icon="⚠️")
 
 def gerar_pdf_simples(titulo, colunas, dados):
     from reportlab.lib.pagesizes import letter, landscape
@@ -316,7 +387,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.0**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.1 (Supabase Integrado)**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -407,22 +478,9 @@ if verificar_senha():
             st.error(f"Arquivo '{ARQUIVO_DADOS}' não encontrado na pasta atual!")
             return pd.DataFrame()
 
-    def carregar_faltas():
-        if os.path.exists(ARQUIVO_FALTAS):
-            df_f = pd.read_excel(ARQUIVO_FALTAS)
-            df_f.columns = df_f.columns.str.strip()
-            df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
-            return df_f
-        else:
-            return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"])
-
     def salvar_dados(df_salvar):
         cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
         df_salvar[cols_salvar].to_excel(ARQUIVO_DADOS, index=False)
-
-    def salvar_faltas(df_f):
-        cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
-        df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
 
     @st.dialog("📋 Lista Detalhada e Exportação")
     def exibir_modal_detalhes(titulo, df_detalhes):
@@ -497,7 +555,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.1 (Atualizada com Ajustes)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.1 (Supabase Ativo)**")
     st.divider()
 
     if not df.empty:
@@ -740,7 +798,6 @@ if verificar_senha():
                             else:
                                 novo_cid = "-"
                             
-                            # Checkboxes de Advertência e Suspensão solicitados
                             gerar_adv = False
                             gerar_susp = False
                             if novo_tipo == "Falta Injustificada":
@@ -1003,7 +1060,6 @@ if verificar_senha():
             if 'dt_nasc_dt' in df_filtrado.columns:
                 df_niver = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == mes_sel_idx].copy()
                 if not df_niver.empty:
-                    # Ordenação por dia do nascimento para identificar o próximo facil e cronologicamente
                     df_niver['Dia_Nasc'] = df_niver['dt_nasc_dt'].dt.day
                     df_niver = df_niver.sort_values(by='Dia_Nasc').drop(columns=['Dia_Nasc'])
                 st.dataframe(df_niver, use_container_width=True)
@@ -1024,8 +1080,6 @@ if verificar_senha():
                     c_cargo = c_s2.text_input("Cargo:")
                     c_d1, c_d2, c_d3 = st.columns(3)
                     c_adm = c_d1.date_input("Data de Admissão:", value=hoje, format="DD/MM/YYYY")
-                    
-                    # Calendário de Nascimento com intervalo expandido (desde 1950 até ano atual)
                     c_nasc = c_d2.date_input(
                         "Data de Nascimento:", 
                         value=date(1995, 1, 1), 
@@ -1067,7 +1121,6 @@ if verificar_senha():
                         e_setor = e_s1.text_input("Setor:", value=str(colab_row.get('Setor', '')))
                         e_cargo = e_s2.text_input("Cargo:", value=str(colab_row.get('Cargo', '')))
                         
-                        # Campo de Data de Admissão editável solicitado
                         e_d1, e_d2, e_d3 = st.columns(3)
                         val_adm_atual = colab_row.get('dt_adm') if pd.notnull(colab_row.get('dt_adm')) else hoje
                         e_adm = e_d1.date_input("Data de Admissão:", value=val_adm_atual, format="DD/MM/YYYY")
@@ -1079,7 +1132,6 @@ if verificar_senha():
                         
                         e_ult_ferias = e_d3.text_input("Últimas Férias (DD/MM/AAAA):", value=str(colab_row.get('Ultimas_Ferias', '')) if pd.notnull(colab_row.get('Ultimas_Ferias')) else "")
                         
-                        # Caixa condicional para Data de Desligamento se o status for Desligado
                         e_data_deslig = None
                         if e_status == "Desligado":
                             st.warning("⚠️ Você selecionou o status **Desligado**. Por favor, informe a data do desligamento abaixo:")
