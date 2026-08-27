@@ -140,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.3.2 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.3.3 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -391,7 +391,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.2**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.3**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -560,7 +560,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.2 (Calendários Liberados & Alertas Ajustados)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.3 (Edição de Colaboradores Corrigida)**")
     st.divider()
 
     if not df.empty:
@@ -650,7 +650,7 @@ if verificar_senha():
             vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
             qtd_vagas = len(vagas_abertas)
             if qtd_vagas > 0:
-                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem exatamente **{qtd_vagas}** vaga(s) aberta(s) por desligamento/término de contrato!")
+                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existen exatamente **{qtd_vagas}** vaga(s) aberta(s) por desligamento/término de contrato!")
 
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Quadro", len(df_filtrado))
@@ -982,12 +982,8 @@ _Registrado por: {nome_usuario}_"""
                     car_c = s2.text_input("Cargo:")
                     d1, d2, d3 = st.columns(3)
                     
-                    # Calendário de Admissão com ano livre desde 1950
                     adm_c = d1.date_input("Admissão:", value=hoje, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
-                    
-                    # Calendário de Nascimento com ano livre desde 1950
                     nasc_c = d2.date_input("Nascimento:", value=date(1995, 1, 1), min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
-                    
                     st_c = d3.selectbox("Status:", ["Ativo", "Férias", "Afastado", "Desligado"])
                     
                     if st.form_submit_button("Salvar") and nom_c:
@@ -1000,7 +996,7 @@ _Registrado por: {nome_usuario}_"""
 
             with t_ed:
                 colabs_e = sorted(df['Funcionário'].dropna().unique())
-                sel_e = st.selectbox("Selecione para Alterar:", colabs_e)
+                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa")
                 if sel_e:
                     idx_el = df[df['Funcionário'] == sel_e].index[0]
                     row_e = df.loc[idx_el]
@@ -1014,18 +1010,16 @@ _Registrado por: {nome_usuario}_"""
                         
                         ed1, ed2, ed3 = st.columns(3)
                         val_ad = row_e.get('dt_adm') if pd.notnull(row_e.get('dt_adm')) else hoje
-                        
-                        # Calendário de Admissão editável com intervalo desde 1950
                         ead = ed1.date_input("Admissão:", value=val_ad, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
                         
                         opts_st = ["Ativo", "Férias", "Afastado", "Desligado"]
                         st_at = row_e.get('Status', 'Ativo')
                         est = ed2.selectbox("Status:", opts_st, index=opts_st.index(st_at) if st_at in opts_st else 0)
                         
+                        # Carrega corretamente a data salva (inclusive do Supabase)
                         val_uf_atual = pd.to_datetime(row_e.get('Ultimas_Ferias'), errors='coerce')
                         val_uf_def = val_uf_atual.date() if pd.notnull(val_uf_atual) else hoje
                         
-                        # Calendário de Últimas Férias liberado desde 1950
                         euf = ed3.date_input("Últimas Férias:", value=val_uf_def, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY")
                         
                         ddes = None
