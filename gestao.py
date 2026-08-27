@@ -10,6 +10,7 @@ import ferias
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import google.generativeai as genai
 
 importlib.reload(ferias)
 
@@ -18,6 +19,19 @@ st.set_page_config(
     page_icon="🍊", 
     layout="wide"
 )
+
+# --- CONFIGURAÇÃO DA API DO GEMINI (IA INTEGRADA) ---
+try:
+    gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+    if gemini_api_key:
+        genai.configure(api_key=gemini_api_key)
+        # Utilizando o modelo padrão atual para texto
+        modelo_ia = genai.GenerativeModel('gemini-1.5-pro')
+        ia_disponivel = True
+    else:
+        ia_disponivel = False
+except Exception:
+    ia_disponivel = False
 
 # --- INJEÇÃO DE META TAGS PWA E ESTILOS CSS PERSONALIZADOS (VERDE TROPICAL NA SIDEBAR) ---
 URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
@@ -101,6 +115,7 @@ ARQUIVO_USUARIOS = "usuarios.xlsx"
 
 TODOS_MODULOS = [
     "Dashboard & Alertas",
+    "🤖 Assistente IA (DP & Gestão)",
     "Chamada & Faltas do Dia",
     "👤 Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
@@ -195,7 +210,7 @@ def carregar_usuarios():
     else:
         dados_iniciais = [
             {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador", "Telefone": ""}
+            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,🤖 Assistente IA (DP & Gestão),Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador", "Telefone": ""}
         ]
         df_u = pd.DataFrame(dados_iniciais)
         df_u.to_excel(ARQUIVO_USUARIOS, index=False)
@@ -508,7 +523,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.0**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.0 (Com IA Integrada)**")
     st.divider()
 
     if not df.empty:
@@ -589,6 +604,27 @@ if verificar_senha():
             if not exp_criticos.empty:
                 st.warning(f"⏰ **ALERTA DE EXPERIÊNCIA:** Existem {len(exp_criticos)} contrato(s) de experiência vencendo nos próximos 10 dias!")
 
+            # --- INSIGHTS INTELIGENTES COM IA (GEMINI) ---
+            if ia_disponivel and st.button("✨ Gerar Análise Executiva e Insights com IA"):
+                with st.spinner("Analisando o quadro e as ocorrências da Tropical com Inteligência Artificial..."):
+                    resumo_dados = f"""
+                    Setor analisado: {setor_selecionado}
+                    Total de colaboradores no quadro: {len(df_filtrado)}
+                    Ativos: {len(df_ativos)}
+                    Em Férias: {len(df_ferias_st)}
+                    Afastados: {len(df_afastados)}
+                    Total de faltas/ocorrências registradas: {len(df_faltas_filtrado)}
+                    """
+                    prompt_exec = f"""Você é o consultor estratégico de RH e DP da Tropical Distribuidora. 
+                    Com base nos seguintes dados atuais, elabore um resumo executivo com 3 recomendações práticas e objetivas para a gestão de pessoas e redução de absenteísmo:
+                    {resumo_dados}
+                    """
+                    try:
+                        resp_ia = modelo_ia.generate_content(prompt_exec)
+                        st.info(f"🤖 **Análise da Inteligência Artificial:**\n\n{resp_ia.text}")
+                    except Exception as e:
+                        st.error(f"Erro ao gerar análise com IA: {e}")
+
             cd1, cd2 = st.columns(2)
             with cd1:
                 st.download_button(
@@ -638,7 +674,7 @@ if verificar_senha():
 
             vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
             if not vagas_abertas.empty:
-                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem {len(vagas_abertas)} vaga(s) aberta(s) por desligamento/término de contrato!")
+                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existen {len(vagas_abertas)} vaga(s) aberta(s) por desligamento/término de contrato!")
 
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Quadro", len(df_filtrado))
@@ -690,6 +726,40 @@ if verificar_senha():
                     st.plotly_chart(fig_faltas, use_container_width=True)
                 else:
                     st.info("Sem dados de ocorrências para gerar o gráfico de ausências.")
+
+        elif menu == "🤖 Assistente IA (DP & Gestão)":
+            st.subheader("🤖 Assistente de Inteligência Artificial — Tropical DP")
+            st.caption("Tire dúvidas sobre legislação trabalhista (CLT), redação de e-mails, advertências, feedbacks ou orientações de gestão de equipe.")
+            
+            if not ia_disponivel:
+                st.warning("⚠️ A chave da API do Gemini (GEMINI_API_KEY) não foi configurada nos Secrets do Streamlit. Configure para ativar o assistente completo.")
+            else:
+                if "historico_chat" not in st.session_state:
+                    st.session_state["historico_chat"] = []
+
+                for mensagem in st.session_state["historico_chat"]:
+                    with st.chat_message(mensagem["role"]):
+                        st.markdown(mensagem["content"])
+
+                pergunta_usuario = st.chat_input("Digite sua dúvida para o Assistente IA...")
+                if pergunta_usuario:
+                    st.session_state["historico_chat"].append({"role": "user", "content": pergunta_usuario})
+                    with st.chat_message("user"):
+                        st.markdown(pergunta_usuario)
+
+                    with st.chat_message("assistant"):
+                        with st.spinner("Pensando..."):
+                            try:
+                                contexto_base = f"Você é um especialista em Departamento Pessoal e Gestão de Equipes na Tropical Distribuidora. O usuário atual é {nome_usuario} ({perfil_usuario})."
+                                chat_sessao = modelo_ia.start_chat(history=[])
+                                prompt_completo = f"{contexto_base}\n\nPergunta/Solicitação: {pergunta_usuario}"
+                                resposta_ia = modelo_ia.generate_content(prompt_completo)
+                                resposta_txt = resposta_ia.text
+                                st.markdown(resposta_txt)
+                                st.session_state["historico_chat"].append({"role": "assistant", "content": resposta_txt})
+                            except Exception as e:
+                                erro_msg = f"Desculpe, ocorreu um erro ao consultar a IA: {e}"
+                                st.error(erro_msg)
 
         elif menu == "Chamada & Faltas do Dia":
             st.subheader(f"📌 Chamada Diária de Presença & Ocorrências - {setor_selecionado}")
@@ -1055,7 +1125,7 @@ if verificar_senha():
                     cols_mod = st.columns(2)
                     for idx_m, mod_nome in enumerate(TODOS_MODULOS):
                         with cols_mod[idx_m % 2]:
-                            default_val = True if perfil_u == "Admin" or mod_nome in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False
+                            default_val = True if perfil_u == "Admin" or mod_nome in ["Dashboard & Alertas", "Chamada & Faltas do Dia", "🤖 Assistente IA (DP & Gestão)"] else False
                             if st.checkbox(mod_nome, value=default_val, key=f"mod_cad_{idx_m}"):
                                 modulos_selecionados.append(mod_nome)
                     btn_cad_u = st.form_submit_button("💾 Criar Usuário")
