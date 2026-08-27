@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — versão blindada sem dependência de bootstrap em secrets.
+"""Painel de Gestão & DP — versão corrigida sem a coluna ativo.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -53,7 +53,7 @@ COLUNAS: dict[str, list[str]] = {
         "status", "ultimas_ferias", "data_retorno_ferias", "decisao_experiencia",
         "data_desligamento",
     ],
-    "usuarios": ["usuario", "nome", "email", "senha_hash", "perfil", "modulos", "telefone", "ativo"],
+    "usuarios": ["usuario", "nome", "email", "senha_hash", "perfil", "modulos", "telefone"],
     "faltas": [
         "registro_id", "matricula", "funcionario", "setor", "data", "tipo", "dias",
         "cid", "motivo", "origem",
@@ -105,7 +105,7 @@ ALIAS_COLUNAS = {
     "usuarios": {
         "usuario": "usuario", "usuário": "usuario", "login": "usuario", "nome": "nome",
         "email": "email", "e_mail": "email", "senha_hash": "senha_hash", "senha": "senha_legada",
-        "perfil": "perfil", "modulos": "modulos", "módulos": "modulos", "telefone": "telefone", "ativo": "ativo",
+        "perfil": "perfil", "modulos": "modulos", "módulos": "modulos", "telefone": "telefone",
     },
     "faltas": {
         "registro_id": "registro_id", "matricula": "matricula", "matrícula": "matricula",
@@ -170,15 +170,6 @@ def formatar_data(valor: object) -> str:
     return convertido.strftime("%d/%m/%Y") if convertido else "—"
 
 
-def valor_bool(valor: object, padrao: bool = True) -> bool:
-    texto = limpar_texto(valor).lower()
-    if texto in {"false", "0", "nao", "não", "inativo"}:
-        return False
-    if texto in {"true", "1", "sim", "ativo"}:
-        return True
-    return padrao
-
-
 def hash_senha(senha: str) -> str:
     if not senha:
         raise ValueError("A senha não pode ficar vazia.")
@@ -232,8 +223,6 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
         if coluna not in df.columns:
             if coluna in {"dias"}:
                 df[coluna] = 0
-            elif coluna in {"ativo"}:
-                df[coluna] = True
             elif coluna in {"status"}:
                 df[coluna] = "Ativo"
             else:
@@ -258,7 +247,6 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
         df["usuario"] = df["usuario"].str.lower()
         df["email"] = df["email"].str.lower()
         df["perfil"] = df["perfil"].replace("", "Gestor")
-        df["ativo"] = df["ativo"].map(valor_bool)
 
     elif entidade in {"faltas", "epis", "historico"}:
         id_coluna = CHAVES_PRIMARIAS[entidade]
@@ -381,11 +369,10 @@ def iniciar_estado_sessao() -> None:
 def provisionar_admin_automatico(usuarios: pd.DataFrame) -> pd.DataFrame:
     if not usuarios.empty:
         return usuarios
-    # Cria automaticamente o usuário admin padrão caso a base esteja vazia
     novo = pd.DataFrame([{
         "usuario": "admin", "nome": "Administrador", "email": "abroisler@gmail.com",
         "senha_hash": hash_senha("030711"), "perfil": "Admin", "modulos": ",".join(TODOS_MODULOS),
-        "telefone": "", "ativo": True,
+        "telefone": "",
     }])
     salvar_entidade("usuarios", novo, False)
     return novo
@@ -411,7 +398,7 @@ def tela_login() -> bool:
             st.error("Muitas tentativas nesta sessão. Atualize a página.")
             return False
         candidato = usuarios[(usuarios["usuario"] == identificador) | (usuarios["email"] == identificador)]
-        if candidato.empty or not bool(candidato.iloc[0]["ativo"]) or not verificar_senha(senha, candidato.iloc[0]["senha_hash"]):
+        if candidato.empty or not verificar_senha(senha, candidato.iloc[0]["senha_hash"]):
             st.session_state["tentativas_login"] += 1
             st.error("E-mail/usuário ou senha incorretos.")
             return False
@@ -467,7 +454,7 @@ def filtrar_setor(df: pd.DataFrame, setor: str) -> pd.DataFrame:
 def tabela_exibicao(df: pd.DataFrame, campos: list[str]) -> pd.DataFrame:
     rotulos = {
         "matricula": "Matrícula", "funcionario": "Funcionário", "setor": "Setor", "cargo": "Cargo",
-        "nome": "Nome", "usuario": "Usuário", "email": "E-mail", "perfil": "Perfil", "telefone": "Telefone", "ativo": "Ativo",
+        "nome": "Nome", "usuario": "Usuário", "email": "E-mail", "perfil": "Perfil", "telefone": "Telefone",
         "admissao": "Admissão", "nascimento": "Nascimento", "status": "Status", "ultimas_ferias": "Últimas férias",
         "data_retorno_ferias": "Retorno das férias", "data": "Data", "tipo": "Tipo", "dias": "Dias",
         "cid": "CID", "motivo": "Motivo", "origem": "Origem", "epi": "EPI", "detalhe_tamanho": "Detalhe/Tamanho",
@@ -867,13 +854,13 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
                     novo = {
                         "usuario": usuario, "nome": nome, "email": email, "senha_hash": hash_senha(senha),
                         "perfil": perfil, "modulos": ",".join(TODOS_MODULOS if perfil == "Admin" else modulos),
-                        "telefone": telefone, "ativo": True,
+                        "telefone": telefone,
                     }
                     if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
                         st.success("Usuário criado com sucesso!")
                         st.rerun()
     with aba_lista:
-        st.dataframe(tabela_exibicao(usuarios, ["nome", "usuario", "email", "perfil", "telefone", "ativo"]), use_container_width=True, hide_index=True)
+        st.dataframe(tabela_exibicao(usuarios, ["nome", "usuario", "email", "perfil", "telefone"]), use_container_width=True, hide_index=True)
 
 
 def tela_importacao(colaboradores: pd.DataFrame) -> None:
