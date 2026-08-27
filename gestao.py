@@ -140,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.2 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.3 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -297,7 +297,7 @@ def salvar_epis(df_e):
         except Exception:
             pass
 
-# --- GERENCIAMENTO DE HISTÓRICO / TIMELINE DO COLABORADOR ---
+# --- GERENCIAMENTO DE HISTÓRICO / TIMELINE ---
 def carregar_historico():
     if supabase_disponivel:
         try:
@@ -454,7 +454,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.2**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -623,7 +623,7 @@ if verificar_senha():
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.2 (Com Módulo EPI & Prontuário 360º)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3 (Ajustes de Calendário & Alertas)**")
     st.divider()
 
     if not df.empty:
@@ -791,7 +791,7 @@ if verificar_senha():
                                 df_faltas.loc[mask_orig, 'Motivo'] = f"Regularizado em {hoje.strftime('%d/%m/%Y')} - {txt_obs}"
                             
                             salvar_faltas(df_faltas)
-                            st.toast("✅ Ocorrência regularizada!", icon="🎉")
+                            st.success("✅ Salvo com sucesso! Ocorrência regularizada.")
                             st.rerun()
 
             tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária", "➕ Lançamento Avulso", "📋 Histórico"])
@@ -811,15 +811,12 @@ if verificar_senha():
                     with st.form("form_chamada_diaria"):
                         for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
                             nome_c = colab_c['Funcionário']
-                            val_pres, val_folga = False, False
+                            val_pres, val_folga = True, False
                             if not faltas_existentes.empty:
                                 reg_c = faltas_existentes[faltas_existentes['Funcionário'] == nome_c]
                                 if not reg_c.empty:
                                     if reg_c.iloc[0].get('Tipo') == 'Folga Concedida': val_folga = True
                                     else: val_pres = False
-                                else: val_pres = True
-                            else:
-                                val_pres = True
 
                             c_n, c_p, c_f = st.columns([2.5, 1, 1])
                             c_n.markdown(f"**{nome_c}**")
@@ -840,7 +837,7 @@ if verificar_senha():
                             if novas_f:
                                 df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
                             salvar_faltas(df_faltas)
-                            st.toast("✅ Chamada salva!", icon="📝")
+                            st.success("✅ Salvo com sucesso! Chamada registrada.")
                             st.rerun()
 
             with tab_avulso:
@@ -857,7 +854,7 @@ if verificar_senha():
                         novo_av = {"Matricula": str(d_c.get('Matricula', '')), "Funcionário": n_colab, "Setor": d_c.get('Setor', ''), "Data": d_f.strftime('%d/%m/%Y'), "Tipo": t_f, "Dias": dias_n, "CID": cid_v.upper() or "-", "Motivo": obs_v, "dt_falta": d_f}
                         df_faltas = pd.concat([df_faltas, pd.DataFrame([novo_av])], ignore_index=True)
                         salvar_faltas(df_faltas)
-                        st.toast("Ocorrência salva!")
+                        st.success("✅ Salvo com sucesso! Lançamento avulsos gravado.")
                         st.rerun()
 
             with tab_hist_f:
@@ -866,8 +863,6 @@ if verificar_senha():
 
         elif menu == "🦺 Solicitação & Entrega de EPI":
             st.subheader("🦺 Módulo de Solicitação e Entrega de EPI")
-            st.caption("Solicite camisetas (P, M, G, GG) e botas de bico de aço (por numeração) para os colaboradores. O registro alimentará automaticamente o prontuário.")
-
             with st.form("form_epi", clear_on_submit=True):
                 colabs_epi = sorted(df_filtrado[df_filtrado['Status'] == 'Ativo']['Funcionário'].unique())
                 colab_escolhido = st.selectbox("Selecione o Colaborador:", colabs_epi)
@@ -882,11 +877,9 @@ if verificar_senha():
                     tamanho_sel = c_e2.text_input("Numeração da Bota (Ex: 39, 40, 41):", value="")
                 
                 data_pedido = c_e3.date_input("Data da Solicitação/Entrega:", value=hoje, format="DD/MM/YYYY")
-                obs_epi = st.text_input("Observações (Ex: Troca por desgaste, extravio, primeira entrega):", value="")
+                obs_epi = st.text_input("Observações:", value="")
 
-                btn_registrar_epi = st.form_submit_button("🦺 Registrar Entrega & Gerar Notificação para RH")
-
-                if btn_registrar_epi and colab_escolhido:
+                if st.form_submit_button("🦺 Registrar Entrega & Gerar Notificação") and colab_escolhido:
                     dados_colab = df_filtrado[df_filtrado['Funcionário'] == colab_escolhido].iloc[0]
                     detalhe_completo = f"{tipo_epi} - Tam/Num: {tamanho_sel} | Obs: {obs_epi}"
                     
@@ -902,13 +895,10 @@ if verificar_senha():
                     
                     df_epis = pd.concat([df_epis, pd.DataFrame([novo_registro_epi])], ignore_index=True)
                     salvar_epis(df_epis)
-                    
-                    # Registrar no histórico do colaborador
                     registrar_historico(dados_colab.get('Matricula', ''), colab_escolhido, "Entrega de EPI", detalhe_completo, nome_usuario)
                     
-                    st.success(f"✅ EPI registrado com sucesso e adicionado ao prontuário de {colab_escolhido}!")
+                    st.success(f"✅ Salvo com sucesso! EPI registrado e adicionado ao prontuário de {colab_escolhido}.")
                     
-                    # Geração do texto para WhatsApp para notificar o RH
                     st.markdown("---")
                     st.markdown("##### 📲 Mensagem Pronta para Envio ao RH / Estoque via WhatsApp:")
                     txt_msg_epi = f"""🦺 *SOLICITAÇÃO / ENTREGA DE EPI - TROPICAL*
@@ -926,8 +916,6 @@ _Registrado por: {nome_usuario}_"""
             if not df_epis.empty:
                 df_epis_filtrado = df_epis[df_epis['Setor'] == setor_selecionado] if setor_selecionado != "Todos os Setores" else df_epis
                 st.dataframe(df_epis_filtrado, use_container_width=True)
-            else:
-                st.info("Nenhum EPI registrado até o momento.")
 
         elif menu == "👤 Ficha Individual do Colaborador":
             st.subheader("👤 Prontuário & Ficha Individual 360º")
@@ -953,27 +941,25 @@ _Registrado por: {nome_usuario}_"""
                     st.info(f"📅 **Admissão:** {dt_adm_txt} | 🎂 **Nascimento:** {dt_nasc_txt}\n\n🏖️ **Últimas Férias:** {ult_f_txt}")
                 
                 st.divider()
-                
-                # Exibição do Histórico / Timeline consolidada do Colaborador
                 st.markdown("##### 🕒 Histórico de Movimentações, Punições e Alterações (Timeline):")
                 df_hist_geral = carregar_historico()
                 df_hist_colab = df_hist_geral[df_hist_geral['Funcionário'] == colab_sel] if not df_hist_geral.empty else pd.DataFrame()
                 if not df_hist_colab.empty:
                     st.dataframe(df_hist_colab[['Data', 'Tipo_Evento', 'Descricao', 'Autor']], use_container_width=True)
                 else:
-                    st.info("Nenhum evento registrado no histórico para este colaborador.")
+                    st.info("Nenhum evento registrado no histórico.")
 
                 st.markdown("##### 🦺 Histórico de EPIs Entregues:")
                 df_epi_colab = df_epis[df_epis['Funcionário'] == colab_sel] if not df_epis.empty else pd.DataFrame()
                 if not df_epi_colab.empty:
                     st.dataframe(df_epi_colab[['Data', 'EPI', 'Detalhe_Tamanho', 'Responsavel']], use_container_width=True)
                 else:
-                    st.success("Nenhum EPI registrado para este colaborador.")
+                    st.success("Nenhum EPI registrado.")
 
                 st.markdown("##### 📋 Histórico de Ausências & Ocorrências:")
                 f_colab = df_faltas[df_faltas['Funcionário'] == colab_sel] if not df_faltas.empty else pd.DataFrame()
                 if f_colab.empty:
-                    st.success("Nenhuma falta ou ocorrência registrada.")
+                    st.success("Nenhuma falta registrada.")
                 else:
                     st.dataframe(f_colab[['Data', 'Tipo', 'Dias', 'CID', 'Motivo']], use_container_width=True)
 
@@ -1044,7 +1030,7 @@ _Registrado por: {nome_usuario}_"""
                         df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
                         salvar_dados(df)
                         registrar_historico(mat_c, nom_c, "Cadastro Inicial", "Colaborador cadastrado no sistema", nome_usuario)
-                        st.toast("Cadastrado com sucesso!")
+                        st.success("✅ Salvo com sucesso! Colaborador cadastrado.")
                         st.rerun()
 
             with t_ed:
@@ -1068,7 +1054,11 @@ _Registrado por: {nome_usuario}_"""
                         opts_st = ["Ativo", "Férias", "Afastado", "Desligado"]
                         st_at = row_e.get('Status', 'Ativo')
                         est = ed2.selectbox("Status:", opts_st, index=opts_st.index(st_at) if st_at in opts_st else 0)
-                        euf = ed3.text_input("Últimas Férias:", value=str(row_e.get('Ultimas_Ferias', '')) if pd.notnull(row_e.get('Ultimas_Ferias')) else "")
+                        
+                        # CALENDÁRIO HABILITADO PARA ÚLTIMAS FÉRIAS (Substituiu o campo de texto simples)
+                        val_uf_atual = pd.to_datetime(row_e.get('Ultimas_Ferias'), errors='coerce')
+                        val_uf_def = val_uf_atual.date() if pd.notnull(val_uf_atual) else hoje
+                        euf = ed3.date_input("Últimas Férias:", value=val_uf_def, min_value=date(2015, 1, 1), max_value=hoje, format="DD/MM/YYYY")
                         
                         ddes = None
                         if est == "Desligado":
@@ -1083,7 +1073,8 @@ _Registrado por: {nome_usuario}_"""
                             df.loc[idx_el, 'Cargo'] = ecar
                             df.loc[idx_el, 'Admissão'] = ead.strftime('%d/%m/%Y')
                             df.loc[idx_el, 'Status'] = est
-                            df.loc[idx_el, 'Ultimas_Ferias'] = euf or None
+                            df.loc[idx_el, 'Ultimas_Ferias'] = euf.strftime('%d/%m/%Y') if euf else None
+                            
                             if est == "Desligado" and ddes:
                                 df.loc[idx_el, 'Data_Desligamento'] = ddes.strftime('%d/%m/%Y')
                                 registrar_historico(em, en, "Desligamento", f"Colaborador desligado em {ddes.strftime('%d/%m/%Y')}", nome_usuario)
@@ -1092,7 +1083,7 @@ _Registrado por: {nome_usuario}_"""
                                 registrar_historico(em, en, "Atualização Cadastral", f"Dados atualizados para status {est}", nome_usuario)
                             
                             salvar_dados(df)
-                            st.toast("Atualizado com sucesso!")
+                            st.success("✅ Salvo com sucesso! Cadastro atualizado.")
                             st.rerun()
 
         elif menu == "⚙️ Criar / Gerenciar Usuários":
@@ -1125,7 +1116,7 @@ _Registrado por: {nome_usuario}_"""
                             nu_dict = {"Nome": nn, "Usuario": nl, "Email": ne, "Senha": ns, "Perfil": nperf, "Modulos": ",".join(mods_s), "Telefone": nt}
                             df_usuarios = pd.concat([df_usuarios, pd.DataFrame([nu_dict])], ignore_index=True)
                             salvar_usuarios(df_usuarios)
-                            st.toast("Usuário criado!")
+                            st.success("✅ Salvo com sucesso! Usuário criado.")
                             if nt:
                                 st.markdown(f"👉 **[📲 Enviar Acesso WhatsApp]({gerar_link_whatsapp(nt, nn, ne or nl, ns)})**")
 
@@ -1157,7 +1148,7 @@ _Registrado por: {nome_usuario}_"""
                             df_usuarios.loc[iu, 'Modulos'] = ",".join(ed_mods)
                             df_usuarios.loc[iu, 'Telefone'] = ute
                             salvar_usuarios(df_usuarios)
-                            st.toast("Atualizado!")
+                            st.success("✅ Salvo com sucesso! Usuário atualizado.")
                             st.rerun()
 
             with t_lu:
@@ -1168,5 +1159,5 @@ _Registrado por: {nome_usuario}_"""
             up_f = st.file_uploader("Arquivo", type=["xlsx"])
             if up_f and st.button("Substituir Base"):
                 pd.read_excel(up_f).to_excel(ARQUIVO_DADOS, index=False)
-                st.toast("Base importada!")
+                st.success("✅ Salvo com sucesso! Nova base importada.")
                 st.rerun()
