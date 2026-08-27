@@ -1,1135 +1,1117 @@
+"""Painel de Gestão & DP — versão corrigida, blindada e preparada para o Supabase.
+
+Execute com: streamlit run gestao_corrigido.py
+Antes do primeiro uso, copie .streamlit/secrets.example.toml para
+.streamlit/secrets.toml e aplique supabase_schema.sql, caso use Supabase.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import hashlib
+import hmac
 import io
 import os
-import smtplib
-import urllib.parse
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime, date, timedelta
-import importlib
-import ferias
+import re
+import secrets
+import shutil
+import unicodedata
+import uuid
+from datetime import date, datetime, timedelta
+from html import escape
+from pathlib import Path
+from typing import Any, Callable, Optional
+
 import pandas as pd
-import plotly.express as px
 import streamlit as st
-import google.generativeai as genai
-from supabase import create_client, Client
-
-importlib.reload(ferias)
-
-st.set_page_config(
-    page_title="Painel de Gestão & DP — Tropical", 
-    page_icon="🍊", 
-    layout="wide"
-)
-
-# --- CONEXÃO COM O SUPABASE E CONFIGURAÇÃO DA IA ---
-try:
-    gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
-    if gemini_api_key:
-        genai.configure(api_key=gemini_api_key)
-        modelo_ia = genai.GenerativeModel('gemini-1.5-pro')
-        ia_disponivel = True
-    else:
-        ia_disponivel = False
-except Exception:
-    ia_disponivel = False
 
 try:
-    supabase_url = st.secrets.get("SUPABASE_URL", "")
-    supabase_key = st.secrets.get("SUPABASE_KEY", "")
-    if supabase_url and supabase_key:
-        supabase: Client = create_client(supabase_url, supabase_key)
-        supabase_disponivel = True
-    else:
-        supabase_disponivel = False
-except Exception:
-    supabase_disponivel = False
+    from supabase import Client, create_client
+except ImportError:  # Permite executar em modo local, sem Supabase instalado.
+    Client = Any  # type: ignore[misc,assignment]
+    create_client = None
 
-# --- ESTILOS CSS PERSONALIZADOS (Botões Laranjas & Balões do Dashboard) ---
-URL_LOGO_TROPICAL = "https://cdn-icons-png.flaticon.com/512/1625/1625048.png"
 
-st.markdown(
-    f"""
-    <meta name="apple-mobile-web-app-title" content="Painel Gestão & DP">
-    <meta name="application-name" content="Painel Gestão & DP">
-    <link rel="apple-touch-icon" href="{URL_LOGO_TROPICAL}">
-    <link rel="icon" type="image/png" href="{URL_LOGO_TROPICAL}">
-    
-    <style>
-        .stApp {{
-            background-color: #0E1117;
-            color: #FFFFFF;
-        }}
-        [data-testid="stSidebar"] {{
-            background-color: #1B3B2B !important;
-        }}
-        [data-testid="stSidebar"] * {{
-            color: #FFFFFF !important;
-        }}
-        div.stButton > button {{
-            background-color: #FF6B00 !important;
-            color: #FFFFFF !important;
-            border-radius: 12px !important;
-            border: none !important;
-            font-weight: bold !important;
-            padding: 10px 16px !important;
-            box-shadow: 0 4px 10px rgba(255, 107, 0, 0.3) !important;
-            transition: all 0.3s ease !important;
-        }}
-        div.stButton > button:hover {{
-            background-color: #E05E00 !important;
-            transform: translateY(-2px);
-        }}
-        div.stDownloadButton > button {{
-            background-color: #1E293B !important;
-            color: #FF6B00 !important;
-            border: 2px solid #FF6B00 !important;
-            border-radius: 12px !important;
-            font-weight: bold !important;
-        }}
-        [data-testid="stMetricValue"] {{
-            color: #FF6B00 !important;
-            font-size: 2rem !important;
-            font-weight: bold !important;
-        }}
-        button[data-baseweb="tab"] {{
-            color: #94A3B8 !important;
-            font-weight: bold !important;
-        }}
-        button[aria-selected="true"] {{
-            color: #FF6B00 !important;
-            border-bottom-color: #FF6B00 !important;
-        }}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# ---------------------------------------------------------------------------
+# Configuração e contratos de dados
+# ---------------------------------------------------------------------------
+st.set_page_config(page_title="Painel de Gestão & DP", page_icon="🍊", layout="wide")
 
-ARQUIVO_DADOS = "equipe.xlsx"
-ARQUIVO_FALTAS = "faltas.xlsx"
-ARQUIVO_USUARIOS = "usuarios.xlsx"
-ARQUIVO_EPIS = "epis.xlsx"
-ARQUIVO_HISTORICO = "historico_colaboradores.xlsx"
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "dados"
+BACKUP_DIR = DATA_DIR / "backups"
+DATA_DIR.mkdir(exist_ok=True)
+BACKUP_DIR.mkdir(exist_ok=True)
 
-TODOS_MODULOS = [
+ARQUIVOS = {
+    "colaboradores": DATA_DIR / "equipe.xlsx",
+    "usuarios": DATA_DIR / "usuarios.xlsx",
+    "faltas": DATA_DIR / "faltas.xlsx",
+    "epis": DATA_DIR / "epis.xlsx",
+    "historico": DATA_DIR / "historico_colaboradores.xlsx",
+}
+
+COLUNAS: dict[str, list[str]] = {
+    "colaboradores": [
+        "matricula", "funcionario", "setor", "cargo", "admissao", "nascimento",
+        "status", "ultimas_ferias", "data_retorno_ferias", "decisao_experiencia",
+        "data_desligamento",
+    ],
+    "usuarios": ["usuario", "nome", "email", "senha_hash", "perfil", "modulos", "telefone", "ativo"],
+    "faltas": [
+        "registro_id", "matricula", "funcionario", "setor", "data", "tipo", "dias",
+        "cid", "motivo", "origem",
+    ],
+    "epis": ["entrega_id", "matricula", "funcionario", "setor", "data", "epi", "detalhe_tamanho", "responsavel"],
+    "historico": ["evento_id", "matricula", "funcionario", "data", "tipo_evento", "descricao", "autor"],
+}
+
+CHAVES_PRIMARIAS = {
+    "colaboradores": "matricula",
+    "usuarios": "usuario",
+    "faltas": "registro_id",
+    "epis": "entrega_id",
+    "historico": "evento_id",
+}
+
+TIPOS_OCORRENCIA = ("Falta Injustificada", "Atestado Médico", "Folga Concedida", "Ausência / A Confirmar")
+STATUS_COLABORADOR = ("Ativo", "Férias", "Afastado", "Desligado")
+TODOS_MODULOS = (
     "Dashboard & Alertas",
-    "🤖 Assistente IA (DP & Gestão)",
+    "Assistente IA (DP & Gestão)",
     "Chamada & Faltas do Dia",
-    "🦺 Solicitação & Entrega de EPI",
-    "👤 Ficha Individual do Colaborador",
+    "Solicitação & Entrega de EPI",
+    "Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
-    "Escala Inteligente de Férias",
-    "🏖️ Colaboradores em Férias",
-    "📊 Indicadores de Frequência & Absenteísmo",
+    "Escala de Férias",
+    "Colaboradores em Férias",
+    "Indicadores de Frequência & Absenteísmo",
     "Aniversariantes do Mês",
     "Cadastrar / Editar Colaborador",
-    "⚙️ Criar / Gerenciar Usuários",
-    "📥 Importar Nova Base"
-]
+    "Criar / Gerenciar Usuários",
+    "Importar Nova Base",
+)
 
-def gerar_link_whatsapp(telefone, nome_usuario, login_acesso, senha_acesso):
-    num_limpo = "".join(filter(str.isdigit, str(telefone)))
-    if not num_limpo.startswith("55") and len(num_limpo) in [10, 11]:
-        num_limpo = f"55{num_limpo}"
-    conf_email = st.secrets.get("email", {})
-    url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
-    texto_msg = f"""🔑 *ACESSO AO SISTEMA - PAINEL DE GESTÃO & DP*
+MODULOS_ADMIN = {"Criar / Gerenciar Usuários", "Importar Nova Base"}
+PBKDF2_ITERACOES = 600_000
 
-Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liberado.
+ALIAS_COLUNAS = {
+    "colaboradores": {
+        "matricula": "matricula", "matrícula": "matricula", "funcionario": "funcionario",
+        "funcionário": "funcionario", "nome": "funcionario", "setor": "setor", "cargo": "cargo",
+        "admissao": "admissao", "admissão": "admissao", "dt_adm": "admissao",
+        "nascimento": "nascimento", "data_nascimento": "nascimento", "ultimas_ferias": "ultimas_ferias",
+        "últimas_férias": "ultimas_ferias", "data_retorno_ferias": "data_retorno_ferias",
+        "retorno_ferias": "data_retorno_ferias", "status": "status",
+        "decisao_experiencia": "decisao_experiencia", "decisão_experiência": "decisao_experiencia",
+        "data_desligamento": "data_desligamento",
+    },
+    "usuarios": {
+        "usuario": "usuario", "usuário": "usuario", "login": "usuario", "nome": "nome",
+        "email": "email", "e_mail": "email", "senha_hash": "senha_hash", "senha": "senha_legada",
+        "perfil": "perfil", "modulos": "modulos", "módulos": "modulos", "telefone": "telefone", "ativo": "ativo",
+    },
+    "faltas": {
+        "registro_id": "registro_id", "matricula": "matricula", "matrícula": "matricula",
+        "funcionario": "funcionario", "funcionário": "funcionario", "setor": "setor", "data": "data",
+        "tipo": "tipo", "dias": "dias", "cid": "cid", "motivo": "motivo", "origem": "origem",
+    },
+    "epis": {
+        "entrega_id": "entrega_id", "matricula": "matricula", "matrícula": "matricula",
+        "funcionario": "funcionario", "funcionário": "funcionario", "setor": "setor", "data": "data",
+        "epi": "epi", "detalhe_tamanho": "detalhe_tamanho", "responsavel": "responsavel", "responsável": "responsavel",
+    },
+    "historico": {
+        "evento_id": "evento_id", "matricula": "matricula", "matrícula": "matricula",
+        "funcionario": "funcionario", "funcionário": "funcionario", "data": "data",
+        "tipo_evento": "tipo_evento", "descricao": "descricao", "descrição": "descricao", "autor": "autor",
+    },
+}
 
-🔗 *Link de Acesso:* {url_app}
-👤 *Usuário/E-mail:* {login_acesso}
-🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.4.6 - Desenvolvido por André Broisler_"""
-    return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
-
-def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
+def segredo(nome: str, padrao: str = "") -> str:
+    """Lê uma configuração sem interromper o modo local quando secrets não existe."""
     try:
-        conf_email = st.secrets.get("email", {})
-        server_smtp = conf_email.get("smtp_server", "smtp.gmail.com")
-        porta_smtp = int(conf_email.get("smtp_port", 587))
-        remetente = conf_email.get("remetente", "")
-        senha_app = conf_email.get("senha_app", "")
-        url_app = conf_email.get("url_app", "https://gestao-equipe-tropical-rh.streamlit.app")
+        return str(st.secrets.get(nome, os.getenv(nome, padrao)))
+    except Exception:
+        return os.getenv(nome, padrao)
 
-        if not remetente or not senha_app:
-            return False, "Servidor de e-mail não configurado."
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "🔑 Seu Acesso ao Sistema - Painel de Gestão & DP Tropical"
-        msg["From"] = remetente
-        msg["To"] = destino_email
+def normalizar_cabecalho(nome: object) -> str:
+    texto = unicodedata.normalize("NFKD", str(nome)).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "_", texto.lower()).strip("_")
 
-        html_corpo = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; color: #1E293B; line-height: 1.6;">
-            <div style="max-width: 600px; margin: 0 auto; border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px;">
-              <h2 style="color: #1B3B2B; margin-top: 0;">Olá, {nome_usuario}!</h2>
-              <p>Seu acesso ao <b>Painel de Gestão & DP da Tropical Distribuidora</b> foi liberado.</p>
-              <div style="background-color: #F0F7F4; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                <p style="margin: 5px 0;"><b>Link de Acesso:</b> <a href="{url_app}" target="_blank">{url_app}</a></p>
-                <p style="margin: 5px 0;"><b>Login (E-mail/Usuário):</b> {login_acesso}</p>
-                <p style="margin: 5px 0;"><b>Senha de Acesso:</b> {senha_app}</p>
-              </div>
-            </div>
-          </body>
-        </html>
-        """
-        msg.attach(MIMEText(html_corpo, "html"))
-        with smtplib.SMTP(server_smtp, porta_smtp) as server:
-            server.starttls()
-            server.login(remetente, senha_app)
-            server.sendmail(remetente, destino_email, msg.as_string())
-        return True, "E-mail enviado com sucesso!"
-    except Exception as e:
-        return False, str(e)
 
-# --- GERENCIAMENTO DE DADOS COM SUPABASE (BLINDAGEM CONTRA ARQUIVO CORROMPIDO) ---
-def carregar_dados():
-    # 1. Tentar carregar do Supabase primeiro (Fonte Primária)
-    if supabase_disponivel:
+def limpar_texto(valor: object) -> str:
+    if pd.isna(valor):
+        return ""
+    texto = str(valor).strip()
+    return "" if texto.lower() in {"nan", "none", "nat"} else texto
+
+
+def limpar_matricula(valor: object) -> str:
+    texto = limpar_texto(valor)
+    return re.sub(r"\.0$", "", texto)
+
+
+def para_data(valor: object) -> Optional[date]:
+    if valor is None or pd.isna(valor) or limpar_texto(valor) == "":
+        return None
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    convertido = pd.to_datetime(str(valor), dayfirst=True, errors="coerce")
+    return None if pd.isna(convertido) else convertido.date()
+
+
+def data_iso(valor: object) -> Optional[str]:
+    convertido = para_data(valor)
+    return convertido.isoformat() if convertido else None
+
+
+def formatar_data(valor: object) -> str:
+    convertido = para_data(valor)
+    return convertido.strftime("%d/%m/%Y") if convertido else "—"
+
+
+def valor_bool(valor: object, padrao: bool = True) -> bool:
+    texto = limpar_texto(valor).lower()
+    if texto in {"false", "0", "nao", "não", "inativo"}:
+        return False
+    if texto in {"true", "1", "sim", "ativo"}:
+        return True
+    return padrao
+
+
+def hash_senha(senha: str) -> str:
+    if not senha:
+        raise ValueError("A senha não pode ficar vazia.")
+    salt = secrets.token_bytes(16)
+    derivada = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), salt, PBKDF2_ITERACOES)
+    return "pbkdf2_sha256${}${}${}".format(
+        PBKDF2_ITERACOES,
+        base64.urlsafe_b64encode(salt).decode("ascii"),
+        base64.urlsafe_b64encode(derivada).decode("ascii"),
+    )
+
+
+def verificar_senha(senha: str, senha_hash: str) -> bool:
+    try:
+        algoritmo, iteracoes, salt_b64, digest_b64 = senha_hash.split("$", 3)
+        if algoritmo != "pbkdf2_sha256":
+            return False
+        derivada = hashlib.pbkdf2_hmac(
+            "sha256", senha.encode("utf-8"), base64.urlsafe_b64decode(salt_b64), int(iteracoes)
+        )
+        return hmac.compare_digest(base64.urlsafe_b64encode(derivada).decode("ascii"), digest_b64)
+    except (ValueError, TypeError, binascii.Error):
+        return False
+
+
+def validar_senha(senha: str) -> list[str]:
+    erros: list[str] = []
+    if len(senha) < 12:
+        erros.append("A senha deve ter pelo menos 12 caracteres.")
+    if not re.search(r"[a-z]", senha):
+        erros.append("Inclua ao menos uma letra minúscula.")
+    if not re.search(r"[A-Z]", senha):
+        erros.append("Inclua ao menos uma letra maiúscula.")
+    if not re.search(r"\d", senha):
+        erros.append("Inclua ao menos um número.")
+    if not re.search(r"[^A-Za-z0-9]", senha):
+        erros.append("Inclua ao menos um caractere especial.")
+    return erros
+
+
+# ---------------------------------------------------------------------------
+# Persistência: Supabase como prioridade absoluta + Excel local de segurança
+# ---------------------------------------------------------------------------
+@st.cache_resource(show_spinner=False)
+def obter_supabase() -> Optional[Client]:
+    url = segredo("SUPABASE_URL")
+    chave = segredo("SUPABASE_SERVICE_ROLE_KEY") or segredo("SUPABASE_KEY")
+    if not url or not chave or create_client is None:
+        return None
+    try:
+        return create_client(url, chave)
+    except Exception:
+        return None
+
+
+def renomear_colunas(df: pd.DataFrame, entidade: str) -> pd.DataFrame:
+    resultado = df.copy()
+    aliases = {normalizar_cabecalho(k): v for k, v in ALIAS_COLUNAS[entidade].items()}
+    novos_nomes = {coluna: aliases.get(normalizar_cabecalho(coluna), normalizar_cabecalho(coluna)) for coluna in resultado.columns}
+    resultado = resultado.rename(columns=novos_nomes)
+    return resultado.loc[:, ~resultado.columns.duplicated()].copy()
+
+
+def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, bool]:
+    df = renomear_colunas(df, entidade)
+    migrou_senha = False
+
+    for coluna in COLUNAS[entidade]:
+        if coluna not in df.columns:
+            if coluna in {"dias"}:
+                df[coluna] = 0
+            elif coluna in {"ativo"}:
+                df[coluna] = True
+            elif coluna in {"status"}:
+                df[coluna] = "Ativo"
+            else:
+                df[coluna] = ""
+
+    if entidade == "colaboradores":
+        for coluna in ("matricula", "funcionario", "setor", "cargo", "status", "decisao_experiencia"):
+            df[coluna] = df[coluna].map(limpar_texto)
+        df["matricula"] = df["matricula"].map(limpar_matricula)
+        df["status"] = df["status"].replace({"Ferias": "Férias", "ferias": "Férias"}).replace("", "Ativo")
+        for coluna in ("admissao", "nascimento", "ultimas_ferias", "data_retorno_ferias", "data_desligamento"):
+            df[coluna] = df[coluna].map(data_iso)
+
+    elif entidade == "usuarios":
+        if "senha_legada" in df.columns:
+            for indice, senha_legada in df["senha_legada"].items():
+                if not limpar_texto(df.at[indice, "senha_hash"]) and limpar_texto(senha_legada):
+                    df.at[indice, "senha_hash"] = hash_senha(limpar_texto(senha_legada))
+                    migrou_senha = True
+        for coluna in ("usuario", "nome", "email", "senha_hash", "perfil", "modulos", "telefone"):
+            df[coluna] = df[coluna].map(limpar_texto)
+        df["usuario"] = df["usuario"].str.lower()
+        df["email"] = df["email"].str.lower()
+        df["perfil"] = df["perfil"].replace("", "Gestor")
+        df["ativo"] = df["ativo"].map(valor_bool)
+
+    elif entidade in {"faltas", "epis", "historico"}:
+        id_coluna = CHAVES_PRIMARIAS[entidade]
+        df[id_coluna] = df[id_coluna].map(limpar_texto)
+        em_branco = df[id_coluna] == ""
+        df.loc[em_branco, id_coluna] = [str(uuid.uuid4()) for _ in range(int(em_branco.sum()))]
+        for coluna in df.columns:
+            if coluna not in {"dias"}:
+                df[coluna] = df[coluna].map(limpar_texto)
+        df["data"] = df["data"].map(data_iso)
+        if entidade == "faltas":
+            df["dias"] = pd.to_numeric(df["dias"], errors="coerce").fillna(0).astype(int)
+            df["origem"] = df["origem"].replace("", "Avulso")
+
+    return df[COLUNAS[entidade]].copy(), migrou_senha
+
+
+def ler_excel(entidade: str) -> pd.DataFrame:
+    caminho = ARQUIVOS[entidade]
+    if not caminho.exists() or caminho.stat().st_size < 100:
+        return pd.DataFrame(columns=COLUNAS[entidade])
+    try:
+        return pd.read_excel(caminho, dtype=object)
+    except Exception:
+        return pd.DataFrame(columns=COLUNAS[entidade])
+
+
+def copiar_backup(caminho: Path) -> None:
+    if caminho.exists() and caminho.stat().st_size >= 100:
+        destino = BACKUP_DIR / f"{caminho.stem}_{datetime.now():%Y%m%d_%H%M%S}{caminho.suffix}"
+        shutil.copy2(caminho, destino)
+
+
+def salvar_excel_atomico(df: pd.DataFrame, entidade: str) -> None:
+    caminho = ARQUIVOS[entidade]
+    temporario = caminho.with_name(f".{caminho.stem}.tmp.xlsx")
+    copiar_backup(caminho)
+    df.to_excel(temporario, index=False, engine="openpyxl")
+    os.replace(temporario, caminho)
+
+
+def converter_para_registros(df: pd.DataFrame) -> list[dict[str, Any]]:
+    registros: list[dict[str, Any]] = []
+    for registro in df.to_dict(orient="records"):
+        limpo: dict[str, Any] = {}
+        for chave, valor in registro.items():
+            if pd.isna(valor) or limpar_texto(valor) == "":
+                limpo[chave] = None
+            elif isinstance(valor, (pd.Timestamp, datetime, date)):
+                limpo[chave] = data_iso(valor)
+            elif isinstance(valor, bool):
+                limpo[chave] = valor
+            else:
+                limpo[chave] = valor
+        registros.append(limpo)
+    return registros
+
+
+def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
+    # Prioridade absoluta: tenta carregar direto do Supabase
+    cliente = obter_supabase()
+    if cliente is not None:
         try:
-            response = supabase.table("colaboradores").select("*").execute()
-            if response.data and len(response.data) > 0:
-                df = pd.DataFrame(response.data)
-                for col in ['id', 'created_at']:
-                    if col in df.columns:
-                        df = df.drop(columns=[col])
-                
-                col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
-                col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
-                
-                df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
-                
-                if col_nasc in df.columns:
-                    df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
-                    df['dt_nasc'] = df['dt_nasc_dt'].dt.date
-                else:
-                    df['dt_nasc_dt'] = pd.NaT
-                    df['dt_nasc'] = None
-                
-                if 'Ultimas_Ferias' not in df.columns:
-                    df['Ultimas_Ferias'] = None
-                else:
-                    df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str).replace(['None', 'nan', 'NaT'], '')
-                    df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
-                    
-                if 'Decisao_Experiencia' not in df.columns:
-                    df['Decisao_Experiencia'] = None
-                if 'Status' not in df.columns:
-                    df['Status'] = 'Ativo'
-                else:
-                    df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
-                if 'Data_Desligamento' not in df.columns:
-                    df['Data_Desligamento'] = None
-                else:
-                    df['Data_Desligamento'] = df['Data_Desligamento'].astype(str).replace(['None', 'nan', 'NaT'], '')
-                if 'Matricula' in df.columns:
-                    df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
+            resposta = cliente.table(entidade).select("*").execute()
+            dados = getattr(resposta, "data", None)
+            if dados is not None and len(dados) > 0:
+                df, migrou_senha = normalizar_entidade(pd.DataFrame(dados), entidade)
+                if migrou_senha:
+                    salvar_entidade(entidade, df, mostrar_feedback=False)
+                return df, "Supabase"
+        except Exception as erro:
+            st.session_state["erro_supabase"] = f"Aviso: Usando base local temporariamente (Supabase instável: {erro})"
 
-                return df
-        except Exception:
-            pass
+    # Fallback para o Excel local apenas se o Supabase falhar ou estiver vazio
+    df, migrou_senha = normalizar_entidade(ler_excel(entidade), entidade)
+    if migrou_senha:
+        salvar_excel_atomico(df, entidade)
+    return df, "Excel local (Fallback)"
 
-    # 2. Se o Supabase falhar, tenta ler o Excel local com tratamento de erro de arquivo corrompido
-    if os.path.exists(ARQUIVO_DADOS) and os.path.getsize(ARQUIVO_DADOS) > 100:
-        try:
-            df = pd.read_excel(ARQUIVO_DADOS)
-            df.columns = df.columns.str.strip()
-            
-            col_adm = next((c for c in df.columns if 'admiss' in str(c).lower() or 'dt_adm' in str(c).lower()), 'Admissão')
-            col_nasc = next((c for c in df.columns if 'nasc' in str(c).lower() or 'anivers' in str(c).lower()), 'Nascimento')
-            
-            df['dt_adm'] = pd.to_datetime(df[col_adm], dayfirst=True, errors='coerce').dt.date if col_adm in df.columns else None
-            
-            if col_nasc in df.columns:
-                df['dt_nasc_dt'] = pd.to_datetime(df[col_nasc], dayfirst=True, errors='coerce')
-                df['dt_nasc'] = df['dt_nasc_dt'].dt.date
-            else:
-                df['dt_nasc_dt'] = pd.NaT
-                df['dt_nasc'] = None
-            
-            if 'Ultimas_Ferias' not in df.columns:
-                df['Ultimas_Ferias'] = None
-            else:
-                df['Ultimas_Ferias'] = df['Ultimas_Ferias'].astype(str).replace(['None', 'nan', 'NaT'], '')
-                df['dt_ult_ferias'] = pd.to_datetime(df['Ultimas_Ferias'], dayfirst=True, errors='coerce').dt.date
-                
-            if 'Decisao_Experiencia' not in df.columns:
-                df['Decisao_Experiencia'] = None
-            if 'Status' not in df.columns:
-                df['Status'] = 'Ativo'
-            else:
-                df['Status'] = df['Status'].fillna('Ativo').astype(str).str.strip()
-            if 'Data_Desligamento' not in df.columns:
-                df['Data_Desligamento'] = None
-            else:
-                df['Data_Desligamento'] = df['Data_Desligamento'].astype(str).replace(['None', 'nan', 'NaT'], '')
-            if 'Matricula' in df.columns:
-                df['Matricula'] = df['Matricula'].astype(str).str.replace('.0', '', regex=False)
 
-            return df
-        except Exception:
-            # Se o arquivo estiver corrompido, removemos ele para evitar loop de erro
-            try:
-                os.remove(ARQUIVO_DADOS)
-            except Exception:
-                pass
-
-    st.error(f"Arquivo '{ARQUIVO_DADOS}' corrompido ou ausente, e Supabase indisponível no momento.")
-    return pd.DataFrame()
-
-def salvar_dados(df_salvar):
-    cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
-    df_limpo = df_salvar[cols_salvar].copy()
+def salvar_entidade(entidade: str, df: pd.DataFrame, mostrar_feedback: bool = True) -> bool:
+    df_normalizado, _ = normalizar_entidade(df, entidade)
     
-    if 'Matricula' in df_limpo.columns:
-        df_limpo['Matricula'] = df_limpo['Matricula'].astype(str).str.replace('.0', '', regex=False)
-    
-    try:
-        df_limpo.to_excel(ARQUIVO_DADOS, index=False)
-    except Exception:
-        pass
-    
-    if supabase_disponivel:
+    # 1. Salva na nuvem (Supabase) primeiro para garantir a integridade da verdade principal
+    cliente = obter_supabase()
+    if cliente is not None:
         try:
-            supabase.table("colaboradores").delete().neq("Matricula", "99999999").execute()
-            registros = df_limpo.to_dict(orient="records")
-            for reg in registros:
-                for k, v in list(reg.items()):
-                    if v in ['nan', 'None', 'NaT', ''] or pd.isna(v):
-                        reg[k] = None
-                    else:
-                        reg[k] = str(v)
+            registros = converter_para_registros(df_normalizado)
             if registros:
-                supabase.table("colaboradores").insert(registros).execute()
-        except Exception as e:
-            st.error(f"Erro ao salvar no Supabase: {e}")
+                cliente.table(entidade).upsert(registros, on_conflict=CHAVES_PRIMARIAS[entidade]).execute()
+        except Exception as erro:
+            st.error(f"Erro crítico ao salvar no Supabase. Alteração cancelada para evitar perda de dados. Detalhe: {erro}")
+            return False
 
-# --- GERENCIAMENTO DE USUÁRIOS COM SUPABASE ---
-def carregar_usuarios():
-    if supabase_disponivel:
-        try:
-            response = supabase.table("usuarios").select("*").execute()
-            if response.data:
-                df_u = pd.DataFrame(response.data)
-                for col in ['id', 'created_at']:
-                    if col in df_u.columns:
-                        df_u = df_u.drop(columns=[col])
-                return df_u
-        except Exception:
-            pass
-
-    if os.path.exists(ARQUIVO_USUARIOS) and os.path.getsize(ARQUIVO_USUARIOS) > 100:
-        try:
-            df_u = pd.read_excel(ARQUIVO_USUARIOS)
-            df_u.columns = df_u.columns.str.strip()
-            for col in ['Nome', 'Usuario', 'Email', 'Senha', 'Perfil', 'Modulos', 'Telefone']:
-                if col in df_u.columns:
-                    df_u[col] = df_u[col].astype(str).str.replace('.0', '', regex=False)
-                else:
-                    df_u[col] = ""
-            if 'Modulos' not in df_u.columns or df_u['Modulos'].isnull().all():
-                df_u['Modulos'] = ",".join(TODOS_MODULOS)
-            return df_u
-        except Exception:
-            try:
-                os.remove(ARQUIVO_USUARIOS)
-            except Exception:
-                pass
-
-    dados_iniciais = [
-        {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
-        {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,🤖 Assistente IA (DP & Gestão),Chamada & Faltas do Dia,🦺 Solicitação & Entrega de EPI,👤 Ficha Individual do Colaborador", "Telefone": ""}
-    ]
-    df_u = pd.DataFrame(dados_iniciais)
+    # 2. Salva o backup local em Excel apenas após o sucesso na nuvem
     try:
-        df_u.to_excel(ARQUIVO_USUARIOS, index=False)
-    except Exception:
-        pass
-    return df_u
+        salvar_excel_atomico(df_normalizado, entidade)
+    except Exception as erro:
+        st.warning(f"Salvo no Supabase, mas houve falha ao atualizar o arquivo local de segurança: {erro}")
 
-def salvar_usuarios(df_u):
-    df_u = df_u.astype(str)
-    try:
-        df_u.to_excel(ARQUIVO_USUARIOS, index=False)
-    except Exception:
-        pass
-    if supabase_disponivel:
-        try:
-            supabase.table("usuarios").delete().neq("id", 0).execute()
-            registros = df_u.to_dict(orient="records")
-            if registros:
-                supabase.table("usuarios").insert(registros).execute()
-        except Exception:
-            pass
+    if mostrar_feedback:
+        st.success("Dados salvos com segurança na nuvem e localmente.")
+    return True
 
-# --- GERENCIAMENTO DE FALTAS COM SUPABASE ---
-def carregar_faltas():
-    if supabase_disponivel:
-        try:
-            response = supabase.table("faltas").select("*").execute()
-            if response.data:
-                df_f = pd.DataFrame(response.data)
-                for col in ['id', 'created_at']:
-                    if col in df_f.columns:
-                        df_f = df_f.drop(columns=[col])
-                df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
-                return df_f
-        except Exception:
-            pass
 
-    if os.path.exists(ARQUIVO_FALTAS) and os.path.getsize(ARQUIVO_FALTAS) > 100:
-        try:
-            df_f = pd.read_excel(ARQUIVO_FALTAS)
-            df_f.columns = df_f.columns.str.strip()
-            df_f['dt_falta'] = pd.to_datetime(df_f['Data'], dayfirst=True, errors='coerce').dt.date
-            return df_f
-        except Exception:
-            try:
-                os.remove(ARQUIVO_FALTAS)
-            except Exception:
-                pass
-    return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "Tipo", "Dias", "CID", "Motivo", "dt_falta"])
-
-def salvar_faltas(df_f):
-    cols_salvar = [c for c in df_f.columns if c != 'dt_falta']
-    try:
-        df_f[cols_salvar].to_excel(ARQUIVO_FALTAS, index=False)
-    except Exception:
-        pass
-    if supabase_disponivel:
-        try:
-            supabase.table("faltas").delete().neq("id", 0).execute()
-            registros = df_f[cols_salvar].to_dict(orient="records")
-            if registros:
-                supabase.table("faltas").insert(registros).execute()
-        except Exception:
-            pass
-
-# --- GERENCIAMENTO DE EPIS ---
-def carregar_epis():
-    if supabase_disponivel:
-        try:
-            response = supabase.table("epi_entregas").select("*").execute()
-            if response.data:
-                df_e = pd.DataFrame(response.data)
-                for col in ['id', 'created_at']:
-                    if col in df_e.columns:
-                        df_e = df_e.drop(columns=[col])
-                return df_e
-        except Exception:
-            pass
-
-    if os.path.exists(ARQUIVO_EPIS) and os.path.getsize(ARQUIVO_EPIS) > 100:
-        try:
-            df_e = pd.read_excel(ARQUIVO_EPIS)
-            df_e.columns = df_e.columns.str.strip()
-            return df_e
-        except Exception:
-            try:
-                os.remove(ARQUIVO_EPIS)
-            except Exception:
-                pass
-    return pd.DataFrame(columns=["Matricula", "Funcionário", "Setor", "Data", "EPI", "Detalhe_Tamanho", "Responsavel"])
-
-def salvar_epis(df_e):
-    try:
-        df_e.to_excel(ARQUIVO_EPIS, index=False)
-    except Exception:
-        pass
-    if supabase_disponivel:
-        try:
-            supabase.table("epi_entregas").delete().neq("id", 0).execute()
-            registros = df_e.to_dict(orient="records")
-            if registros:
-                supabase.table("epi_entregas").insert(registros).execute()
-        except Exception:
-            pass
-
-# --- GERENCIAMENTO DE HISTÓRICO / TIMELINE ---
-def carregar_historico():
-    if supabase_disponivel:
-        try:
-            response = supabase.table("historico_colaboradores").select("*").execute()
-            if response.data:
-                df_h = pd.DataFrame(response.data)
-                for col in ['id', 'created_at']:
-                    if col in df_h.columns:
-                        df_h = df_h.drop(columns=[col])
-                return df_h
-        except Exception:
-            pass
-
-    if os.path.exists(ARQUIVO_HISTORICO) and os.path.getsize(ARQUIVO_HISTORICO) > 100:
-        try:
-            df_h = pd.read_excel(ARQUIVO_HISTORICO)
-            df_h.columns = df_h.columns.str.strip()
-            return df_h
-        except Exception:
-            try:
-                os.remove(ARQUIVO_HISTORICO)
-            except Exception:
-                pass
-    return pd.DataFrame(columns=["Matricula", "Funcionário", "Data", "Tipo_Evento", "Descricao", "Autor"])
-
-def registrar_historico(matricula, funcionario, tipo_evento, descricao, autor):
-    df_h = carregar_historico()
-    novo_reg = {
-        "Matricula": str(matricula),
-        "Funcionário": str(funcionario),
-        "Data": datetime.now().strftime('%d/%m/%Y %H:%M'),
-        "Tipo_Evento": str(tipo_evento),
-        "Descricao": str(descricao),
-        "Autor": str(autor)
+def registrar_historico(matricula: str, funcionario: str, tipo: str, descricao: str, autor: str) -> None:
+    historico, _ = carregar_entidade("historico")
+    novo = {
+        "evento_id": str(uuid.uuid4()), "matricula": limpar_matricula(matricula),
+        "funcionario": limpar_texto(funcionario), "data": datetime.now().isoformat(timespec="minutes"),
+        "tipo_evento": limpar_texto(tipo), "descricao": limpar_texto(descricao), "autor": limpar_texto(autor),
     }
-    df_h = pd.concat([df_h, pd.DataFrame([novo_reg])], ignore_index=True)
-    try:
-        df_h.to_excel(ARQUIVO_HISTORICO, index=False)
-    except Exception:
-        pass
-    if supabase_disponivel:
-        try:
-            supabase.table("historico_colaboradores").insert(novo_reg).execute()
-        except Exception:
-            pass
+    salvar_entidade("historico", pd.concat([historico, pd.DataFrame([novo])], ignore_index=True), False)
 
-def gerar_pdf_simples(titulo, colunas, dados):
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib import colors
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    elements = []
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1B3B2B"), spaceAfter=15)
-    hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
-    elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
-    elements.append(Paragraph(f"<font size=9 color='#666666'>Gerado em: {hoje_txt} | Tropical Distribuidora — Painel de Gestão & DP</font>", styles['Normal']))
-    elements.append(Spacer(1, 15))
+# ---------------------------------------------------------------------------
+# Sessão, autenticação e autorização
+# ---------------------------------------------------------------------------
+def iniciar_estado_sessao() -> None:
+    padroes = {
+        "autenticado": False, "usuario": "", "nome_usuario": "", "perfil": "",
+        "modulos": [], "fonte_colaboradores": "", "tentativas_login": 0,
+    }
+    for chave, valor in padroes.items():
+        st.session_state.setdefault(chave, valor)
 
-    table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in colunas]]
-    for linha in dados:
-        row_data = [Paragraph(str(val) if pd.notnull(val) else "", styles['Normal']) for val in linha]
-        table_data.append(row_data)
 
-    t = Table(table_data, repeatRows=1)
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#E2E8F0")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#1E293B")),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-    ]))
-    elements.append(t)
-    doc.build(elements)
-    pdf_out = buffer.getvalue()
-    buffer.close()
-    return pdf_out
+def provisionar_admin_inicial(usuarios: pd.DataFrame) -> pd.DataFrame:
+    if not usuarios.empty:
+        return usuarios
+    usuario = segredo("BOOTSTRAP_ADMIN_USER").lower().strip()
+    senha = segredo("BOOTSTRAP_ADMIN_PASSWORD")
+    email = segredo("BOOTSTRAP_ADMIN_EMAIL")
+    if not usuario or not senha or not email:
+        st.error("Nenhum usuário existe. Configure BOOTSTRAP_ADMIN_USER, BOOTSTRAP_ADMIN_EMAIL e BOOTSTRAP_ADMIN_PASSWORD em secrets.toml.")
+        st.stop()
+    erros = validar_senha(senha)
+    if erros:
+        st.error("A senha inicial não atende à política: " + " ".join(erros))
+        st.stop()
+    novo = pd.DataFrame([{
+        "usuario": usuario, "nome": "Administrador Inicial", "email": email.lower(),
+        "senha_hash": hash_senha(senha), "perfil": "Admin", "modulos": ",".join(TODOS_MODULOS),
+        "telefone": "", "ativo": True,
+    }])
+    if salvar_entidade("usuarios", novo, False):
+        st.success("Administrador inicial criado com sucesso.")
+    return novo
 
-def converter_df_para_excel(df_exp):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_exp.to_excel(writer, index=False, sheet_name='Relatorio')
-    return output.getvalue()
 
-@st.dialog("📋 Lista Detalhada e Exportação")
-def exibir_modal_detalhes(titulo, df_detalhes):
-    st.subheader(titulo)
-    if df_detalhes.empty:
-        st.info("Nenhum colaborador nesta situação.")
-    else:
-        st.dataframe(df_detalhes, use_container_width=True)
-        st.markdown("---")
-        st.markdown("##### 📥 Exportar Esta Lista")
-        c_d1, c_d2 = st.columns(2)
-        with c_d1:
-            st.download_button(
-                label="📥 Baixar em Excel (.xlsx)",
-                data=converter_df_para_excel(df_detalhes),
-                file_name=f"{titulo.lower().replace(' ', '_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"excel_modal_{titulo}"
-            )
-        with c_d2:
-            pdf_b = gerar_pdf_simples(titulo, list(df_detalhes.columns), df_detalhes.values.tolist())
-            st.download_button(
-                label="🖨️ Baixar PDF para Impressão",
-                data=pdf_b,
-                file_name=f"{titulo.lower().replace(' ', '_')}.pdf",
-                mime="application/pdf",
-                key=f"pdf_modal_{titulo}"
-            )
+def tela_login() -> bool:
+    iniciar_estado_sessao()
+    if st.session_state["autenticado"]:
+        return True
 
-@st.dialog("🔑 Alterar Minha Senha")
-def modal_alterar_senha():
-    st.subheader("Alterar Minha Senha")
-    df_u = carregar_usuarios()
-    usr_logado = st.session_state.get("usuario_login")
-    
-    s_atual = st.text_input("Senha Atual:", type="password")
-    s_nova = st.text_input("Nova Senha:", type="password")
-    s_conf = st.text_input("Confirme a Nova Senha:", type="password")
-    
-    if st.button("💾 Confirmar Alteração"):
-        mask = (df_u['Usuario'].astype(str).str.lower() == str(usr_logado).lower())
-        if mask.any():
-            senha_correta = df_u.loc[mask, 'Senha'].values[0]
-            if str(s_atual) != str(senha_correta) and str(s_atual) not in ["030711", "123"]:
-                st.error("❌ Senha atual incorreta!")
-            elif not s_nova:
-                st.warning("⚠️ Digite a nova senha.")
-            elif s_nova != s_conf:
-                st.error("❌ A nova senha e a confirmação não conferem.")
-            else:
-                df_u.loc[mask, 'Senha'] = str(s_nova)
-                salvar_usuarios(df_u)
-                st.success("✅ Salvo com sucesso! Senha alterada.")
-                st.rerun()
+    st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
+    st.caption("Use uma conta cadastrada.")
+    usuarios, _ = carregar_entidade("usuarios")
+    usuarios = provisionar_admin_inicial(usuarios)
 
-def verificar_senha():
-    if "autenticado" not in st.session_state:
-        st.session_state["autenticado"] = False
-        st.session_state["perfil"] = None
-        st.session_state["usuario_nome"] = None
-        st.session_state["usuario_login"] = None
-        st.session_state["usuario_email"] = None
-        st.session_state["usuario_modulos"] = []
+    with st.form("form_login"):
+        identificador = st.text_input("E-mail ou usuário").strip().lower()
+        senha = st.text_input("Senha", type="password")
+        enviar = st.form_submit_button("Entrar")
 
-    if not st.session_state["autenticado"]:
-        st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.6**")
-        st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
-        
-        df_u = carregar_usuarios()
-        user_input = st.text_input("E-mail ou Usuário:").strip().lower()
-        senha_input = st.text_input("Senha:", type="password")
-        btn_entrar = st.button("🔑 Entrar no Sistema")
-        
-        if btn_entrar:
-            logins_admin = ["admin", "admin@tropical.com.br", "abroisler@gmail.com", "andre"]
-            senhas_validas = ["030711", "123"]
-            
-            if user_input in logins_admin and senha_input in senhas_validas:
-                st.session_state["autenticado"] = True
-                st.session_state["perfil"] = "Admin"
-                st.session_state["usuario_nome"] = "André Broisler"
-                st.session_state["usuario_login"] = "admin"
-                st.session_state["usuario_email"] = "abroisler@gmail.com"
-                st.session_state["usuario_modulos"] = TODOS_MODULOS
-                st.toast("Acesso de Administrador Liberado!", icon="🔑")
-                st.rerun()
-            else:
-                match = df_u[
-                    ((df_u['Usuario'].astype(str).str.lower() == user_input) | 
-                     (df_u['Email'].astype(str).str.lower() == user_input) |
-                     (df_u['Nome'].astype(str).str.lower() == user_input)) & 
-                    (df_u['Senha'].astype(str) == senha_input)
-                ]
-                if not match.empty:
-                    usr = match.iloc[0]
-                    st.session_state["autenticado"] = True
-                    st.session_state["perfil"] = str(usr['Perfil'])
-                    st.session_state["usuario_nome"] = str(usr['Nome'])
-                    st.session_state["usuario_login"] = str(usr['Usuario'])
-                    st.session_state["usuario_email"] = str(usr['Email'])
-                    
-                    mods_raw = str(usr.get('Modulos', ''))
-                    st.session_state["usuario_modulos"] = [m.strip() for m in mods_raw.split(',') if m.strip()] if mods_raw and mods_raw != 'nan' else TODOS_MODULOS
-                    
-                    st.toast(f"Bem-vindo(a), {usr['Nome']}!", icon="👋")
-                    st.rerun()
-                else:
-                    st.error("❌ E-mail/Usuário ou senha incorretos.")
+    if enviar:
+        if st.session_state["tentativas_login"] >= 5:
+            st.error("Muitas tentativas nesta sessão. Atualize a página antes de tentar novamente.")
+            return False
+        candidato = usuarios[(usuarios["usuario"] == identificador) | (usuarios["email"] == identificador)]
+        if candidato.empty or not bool(candidato.iloc[0]["ativo"]) or not verificar_senha(senha, candidato.iloc[0]["senha_hash"]):
+            st.session_state["tentativas_login"] += 1
+            st.error("E-mail/usuário ou senha incorretos.")
+            return False
+
+        registro = candidato.iloc[0]
+        modulos = [modulo.strip() for modulo in limpar_texto(registro["modulos"]).split(",") if modulo.strip()]
+        st.session_state.update({
+            "autenticado": True, "usuario": registro["usuario"], "nome_usuario": registro["nome"],
+            "perfil": registro["perfil"], "modulos": list(TODOS_MODULOS) if registro["perfil"] == "Admin" else modulos,
+            "tentativas_login": 0,
+        })
+        st.rerun()
+    return False
+
+
+def encerrar_sessao() -> None:
+    for chave in ("autenticado", "usuario", "nome_usuario", "perfil", "modulos", "tentativas_login"):
+        st.session_state.pop(chave, None)
+    st.rerun()
+
+
+def exigir_admin() -> bool:
+    if st.session_state.get("perfil") != "Admin":
+        st.error("Esta operação exige perfil de Administrador.")
         return False
     return True
 
-if verificar_senha():
-    df = carregar_dados()
-    df_faltas = carregar_faltas()
-    df_epis = carregar_epis()
+
+def alterar_minha_senha() -> None:
+    with st.expander("Alterar minha senha"):
+        atual = st.text_input("Senha atual", type="password", key="senha_atual")
+        nova = st.text_input("Nova senha", type="password", key="senha_nova")
+        confirmar = st.text_input("Confirmar nova senha", type="password", key="senha_conf")
+        if st.button("Atualizar senha", key="btn_alterar_senha"):
+            usuarios, _ = carregar_entidade("usuarios")
+            posicao = usuarios.index[usuarios["usuario"] == st.session_state["usuario"]]
+            if posicao.empty or not verificar_senha(atual, usuarios.loc[posicao[0], "senha_hash"]):
+                st.error("A senha atual está incorreta.")
+            elif nova != confirmar:
+                st.error("A confirmação não corresponde à nova senha.")
+            else:
+                erros = validar_senha(nova)
+                if erros:
+                    st.error(" ".join(erros))
+                else:
+                    usuarios.loc[posicao[0], "senha_hash"] = hash_senha(nova)
+                    salvar_entidade("usuarios", usuarios)
+
+
+# ---------------------------------------------------------------------------
+# Utilitários de regras de negócio e relatórios
+# ---------------------------------------------------------------------------
+def filtrar_setor(df: pd.DataFrame, setor: str) -> pd.DataFrame:
+    if setor == "Todos os setores" or df.empty:
+        return df.copy()
+    return df[df["setor"] == setor].copy()
+
+
+def tabela_exibicao(df: pd.DataFrame, campos: list[str]) -> pd.DataFrame:
+    rotulos = {
+        "matricula": "Matrícula", "funcionario": "Funcionário", "setor": "Setor", "cargo": "Cargo",
+        "nome": "Nome", "usuario": "Usuário", "email": "E-mail", "perfil": "Perfil", "telefone": "Telefone", "ativo": "Ativo",
+        "admissao": "Admissão", "nascimento": "Nascimento", "status": "Status", "ultimas_ferias": "Últimas férias",
+        "data_retorno_ferias": "Retorno das férias", "data": "Data", "tipo": "Tipo", "dias": "Dias",
+        "cid": "CID", "motivo": "Motivo", "origem": "Origem", "epi": "EPI", "detalhe_tamanho": "Detalhe/Tamanho",
+        "responsavel": "Responsável", "tipo_evento": "Tipo de evento", "descricao": "Descrição", "autor": "Autor",
+    }
+    existente = [campo for campo in campos if campo in df.columns]
+    resultado = df[existente].copy()
+    for campo in ("admissao", "nascimento", "ultimas_ferias", "data_retorno_ferias", "data", "data_desligamento"):
+        if campo in resultado.columns:
+            resultado[campo] = resultado[campo].map(formatar_data)
+    return resultado.rename(columns=rotulos)
+
+
+def excel_bytes(df: pd.DataFrame) -> bytes:
+    saida = io.BytesIO()
+    with pd.ExcelWriter(saida, engine="openpyxl") as escritor:
+        df.to_excel(escritor, index=False, sheet_name="Relatório")
+    return saida.getvalue()
+
+
+def pdf_bytes(titulo: str, df: pd.DataFrame) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import landscape, letter
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    saida = io.BytesIO()
+    estilos = getSampleStyleSheet()
+    elementos = [
+        Paragraph(escape(titulo), estilos["Title"]),
+        Paragraph(f"Gerado em {datetime.now():%d/%m/%Y %H:%M}", estilos["Normal"]),
+        Spacer(1, 12),
+    ]
+    cabecalho = [Paragraph(f"<b>{escape(str(c))}</b>", estilos["BodyText"]) for c in df.columns]
+    linhas = [[Paragraph(escape(limpar_texto(v)), estilos["BodyText"]) for v in linha] for linha in df.fillna("").values.tolist()]
+    tabela = Table([cabecalho, *linhas], repeatRows=1)
+    tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DDE8E0")),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#9CB5A6")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elementos.append(tabela)
+    SimpleDocTemplate(saida, pagesize=landscape(letter), leftMargin=24, rightMargin=24, topMargin=24, bottomMargin=24).build(elementos)
+    return saida.getvalue()
+
+
+def bloco_exportacao(nome: str, df: pd.DataFrame) -> None:
+    if df.empty:
+        return
+    exibicao = df.copy()
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button("Baixar Excel", excel_bytes(exibicao), f"{nome}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    with c2:
+        try:
+            st.download_button("Baixar PDF", pdf_bytes(nome, exibicao), f"{nome}.pdf", "application/pdf")
+        except ImportError:
+            st.caption("Instale reportlab para habilitar o PDF.")
+
+
+def opcoes_colaboradores(df: pd.DataFrame, apenas_ativos: bool = False) -> tuple[list[str], dict[str, str]]:
+    base = df[df["status"] == "Ativo"].copy() if apenas_ativos else df.copy()
+    base = base[base["matricula"] != ""].sort_values(["funcionario", "matricula"])
+    mapa = {linha["matricula"]: f"{linha['funcionario']} · {linha['matricula']}" for _, linha in base.iterrows()}
+    return list(mapa.keys()), mapa
+
+
+def classificar_experiencia(admissao: Optional[date], hoje: date) -> tuple[str, Optional[int], Optional[int]]:
+    if not admissao:
+        return "Sem data de admissão", None, None
+    dias_45 = ((admissao + timedelta(days=45)) - hoje).days
+    dias_90 = ((admissao + timedelta(days=90)) - hoje).days
+    if dias_90 < 0:
+        return "90 dias vencido", dias_45, dias_90
+    if dias_45 < 0:
+        return "Em experiência após 45 dias", dias_45, dias_90
+    return "Até 45 dias", dias_45, dias_90
+
+
+# ---------------------------------------------------------------------------
+# Módulos da aplicação
+# ---------------------------------------------------------------------------
+def tela_dashboard(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str) -> None:
     hoje = date.today()
+    base = filtrar_setor(colaboradores, setor)
+    faltas_base = filtrar_setor(faltas, setor)
+    ativos = base[base["status"] == "Ativo"]
+    em_ferias = base[base["status"] == "Férias"]
+    afastados = base[base["status"] == "Afastado"]
+    ocorrencias_hoje = faltas_base[faltas_base["data"].map(para_data) == hoje] if not faltas_base.empty else faltas_base
+    ausencias_hoje = ocorrencias_hoje[ocorrencias_hoje["tipo"] != "Folga Concedida"] if not ocorrencias_hoje.empty else ocorrencias_hoje
 
-    perfil_usuario = st.session_state.get("perfil", "Gestor")
-    nome_usuario = st.session_state.get("usuario_nome", "Usuário")
+    st.subheader("Painel geral de indicadores")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total no quadro", len(base))
+    c2.metric("Ativos", len(ativos))
+    c3.metric("Em férias", len(em_ferias))
+    c4.metric("Afastados", len(afastados))
+    c5.metric("Ausências hoje", len(ausencias_hoje))
 
-    st.sidebar.caption(f"👤 **{nome_usuario}** ({perfil_usuario})")
-    
-    c_s1, c_s2 = st.sidebar.columns(2)
-    with c_s1:
-        if st.button("🔑 Senha"):
-            modal_alterar_senha()
-    with c_s2:
-        if st.button("🚪 Sair"):
-            st.session_state["autenticado"] = False
+    retornos = em_ferias.copy()
+    retornos["retorno"] = retornos["data_retorno_ferias"].map(para_data)
+    retornos = retornos[retornos["retorno"].notna()]
+    if not retornos.empty:
+        for _, pessoa in retornos.iterrows():
+            dias = (pessoa["retorno"] - hoje).days
+            if dias <= 2:
+                mensagem = f"{pessoa['funcionario']} — retorno previsto em {formatar_data(pessoa['retorno'])}."
+                if dias < 0:
+                    st.error("Retorno de férias vencido: " + mensagem)
+                elif dias == 0:
+                    st.warning("Retorno de férias hoje: " + mensagem)
+                else:
+                    st.info(f"Retorno de férias em {dias} dia(s): " + mensagem)
+
+    aniversariantes = base[base["nascimento"].map(lambda valor: (para_data(valor) or date(1900, 1, 1)).strftime("%m-%d") == hoje.strftime("%m-%d"))]
+    if not aniversariantes.empty:
+        st.success("Aniversariantes de hoje: " + ", ".join(aniversariantes["funcionario"].tolist()))
+
+
+def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, autor: str) -> None:
+    st.subheader("Chamada diária e ocorrências")
+    aba_chamada, aba_avulso, aba_historico = st.tabs(["Chamada diária", "Lançamento avulso", "Histórico"])
+    base = filtrar_setor(colaboradores, setor)
+    ativos = base[base["status"] == "Ativo"].copy()
+    termos_lideranca = r"gerente|supervisor|encarregado|coordenador|líder|lider"
+    operacionais = ativos[~ativos["cargo"].str.lower().str.contains(termos_lideranca, na=False)].copy()
+
+    with aba_chamada:
+        data_chamada = st.date_input("Data da chamada", value=date.today(), key="data_chamada")
+        if operacionais.empty:
+            st.info("Não há colaboradores operacionais ativos para o filtro atual.")
+        else:
+            anteriores = faltas[(faltas["data"].map(para_data) == data_chamada) & (faltas["origem"] == "Chamada")]
+            anteriores = filtrar_setor(anteriores, setor)
+            estados: dict[str, str] = {linha["matricula"]: "Presente" for _, linha in operacionais.iterrows()}
+            for _, ocorrencia in anteriores.iterrows():
+                estados[ocorrencia["matricula"]] = "Folga" if ocorrencia["tipo"] == "Folga Concedida" else "Ausente"
+
+            with st.form("form_chamada"):
+                novo_estado: dict[str, str] = {}
+                for _, pessoa in operacionais.iterrows():
+                    col_nome, col_status = st.columns([2.2, 1.35])
+                    col_nome.markdown(f"**{pessoa['funcionario']}**  \n`{pessoa['matricula']}`")
+                    novo_estado[pessoa["matricula"]] = col_status.radio(
+                        "Status", ("Presente", "Folga", "Ausente"),
+                        index=("Presente", "Folga", "Ausente").index(estados.get(pessoa["matricula"], "Presente")),
+                        horizontal=True, label_visibility="collapsed",
+                        key=f"chamada_{data_chamada.isoformat()}_{setor}_{pessoa['matricula']}",
+                    )
+                salvar = st.form_submit_button("Salvar chamada")
+
+            if salvar:
+                remover = (faltas["data"].map(para_data) == data_chamada) & (faltas["origem"] == "Chamada")
+                if setor != "Todos os setores":
+                    remover &= faltas["setor"] == setor
+                atualizada = faltas[~remover].copy()
+                novos: list[dict[str, Any]] = []
+                for _, pessoa in operacionais.iterrows():
+                    escolha = novo_estado[pessoa["matricula"]]
+                    if escolha != "Presente":
+                        novos.append({
+                            "registro_id": str(uuid.uuid4()), "matricula": pessoa["matricula"], "funcionario": pessoa["funcionario"],
+                            "setor": pessoa["setor"], "data": data_chamada.isoformat(),
+                            "tipo": "Folga Concedida" if escolha == "Folga" else "Falta Injustificada",
+                            "dias": 1, "cid": "", "motivo": "Chamada diária", "origem": "Chamada",
+                        })
+                atualizada = pd.concat([atualizada, pd.DataFrame(novos)], ignore_index=True) if novos else atualizada
+                if salvar_entidade("faltas", atualizada):
+                    registrar_historico("", "", "Chamada diária", f"Chamada de {data_chamada:%d/%m/%Y} registrada para {setor}.", autor)
+                    st.rerun()
+
+    with aba_avulso:
+        opcoes, mapa = opcoes_colaboradores(base, apenas_ativos=False)
+        if not opcoes:
+            st.info("Cadastre um colaborador antes de lançar uma ocorrência.")
+        else:
+            with st.form("form_ocorrencia", clear_on_submit=True):
+                matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor])
+                tipo = st.selectbox("Tipo", TIPOS_OCORRENCIA)
+                data_ocorrencia = st.date_input("Data", value=date.today(), key="data_ocorrencia")
+                dias = st.number_input("Quantidade de dias", min_value=1, max_value=365, value=1)
+                cid = st.text_input("CID (opcional)").strip().upper()
+                motivo = st.text_area("Observação", max_chars=500).strip()
+                if st.form_submit_button("Salvar ocorrência"):
+                    pessoa = base[base["matricula"] == matricula].iloc[0]
+                    novo = {
+                        "registro_id": str(uuid.uuid4()), "matricula": matricula, "funcionario": pessoa["funcionario"],
+                        "setor": pessoa["setor"], "data": data_ocorrencia.isoformat(), "tipo": tipo, "dias": int(dias),
+                        "cid": cid, "motivo": motivo, "origem": "Avulso",
+                    }
+                    if salvar_entidade("faltas", pd.concat([faltas, pd.DataFrame([novo])], ignore_index=True)):
+                        registrar_historico(matricula, pessoa["funcionario"], "Ocorrência", f"{tipo} em {data_ocorrencia:%d/%m/%Y}.", autor)
+                        st.rerun()
+
+    with aba_historico:
+        historico = filtrar_setor(faltas, setor).sort_values("data", ascending=False)
+        tabela = tabela_exibicao(historico, ["data", "funcionario", "setor", "tipo", "dias", "cid", "motivo", "origem"])
+        st.dataframe(tabela, use_container_width=True, hide_index=True)
+        bloco_exportacao("historico_faltas", tabela)
+
+
+def tela_epi(colaboradores: pd.DataFrame, epis: pd.DataFrame, setor: str, autor: str) -> None:
+    st.subheader("Solicitação e entrega de EPI")
+    base = filtrar_setor(colaboradores, setor)
+    opcoes, mapa = opcoes_colaboradores(base, apenas_ativos=True)
+    if not opcoes:
+        st.info("Não há colaboradores ativos para o filtro atual.")
+        return
+    with st.form("form_epi", clear_on_submit=True):
+        matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor])
+        c1, c2, c3 = st.columns(3)
+        epi = c1.selectbox("EPI", ("Camiseta", "Bota de segurança", "Luvas", "Óculos", "Protetor auricular", "Outro"))
+        detalhe = c2.text_input("Tamanho/Detalhe", max_chars=100)
+        data_entrega = c3.date_input("Data da entrega", value=date.today())
+        if st.form_submit_button("Registrar entrega"):
+            pessoa = base[base["matricula"] == matricula].iloc[0]
+            novo = {
+                "entrega_id": str(uuid.uuid4()), "matricula": matricula, "funcionario": pessoa["funcionario"],
+                "setor": pessoa["setor"], "data": data_entrega.isoformat(), "epi": epi,
+                "detalhe_tamanho": detalhe, "responsavel": autor,
+            }
+            if salvar_entidade("epis", pd.concat([epis, pd.DataFrame([novo])], ignore_index=True)):
+                registrar_historico(matricula, pessoa["funcionario"], "Entrega de EPI", f"{epi}: {detalhe or 'sem detalhe'}.", autor)
+                st.rerun()
+
+    st.markdown("#### Histórico de entregas")
+    tabela = tabela_exibicao(filtrar_setor(epis, setor).sort_values("data", ascending=False), ["data", "funcionario", "setor", "epi", "detalhe_tamanho", "responsavel"])
+    st.dataframe(tabela, use_container_width=True, hide_index=True)
+
+
+def tela_ficha(colaboradores: pd.DataFrame, historico: pd.DataFrame) -> None:
+    st.subheader("Ficha individual do colaborador")
+    opcoes, mapa = opcoes_colaboradores(colaboradores)
+    if not opcoes:
+        st.info("Nenhum colaborador cadastrado.")
+        return
+    matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor])
+    pessoa = colaboradores[colaboradores["matricula"] == matricula].iloc[0]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Matrícula", pessoa["matricula"])
+    c2.metric("Cargo", pessoa["cargo"] or "Não informado")
+    c3.metric("Setor", pessoa["setor"] or "Não informado")
+    c4.metric("Status", pessoa["status"])
+    st.markdown(f"**Admissão:** {formatar_data(pessoa['admissao'])} &nbsp;&nbsp; **Nascimento:** {formatar_data(pessoa['nascimento'])} &nbsp;&nbsp; **Retorno de férias:** {formatar_data(pessoa['data_retorno_ferias'])}")
+    eventos = historico[historico["matricula"] == matricula].sort_values("data", ascending=False)
+    st.markdown("#### Linha do tempo")
+    if eventos.empty:
+        st.caption("Nenhum evento registrado para este colaborador.")
+    else:
+        st.dataframe(tabela_exibicao(eventos, ["data", "tipo_evento", "descricao", "autor"]), use_container_width=True, hide_index=True)
+
+
+def tela_experiencia(colaboradores: pd.DataFrame, setor: str) -> None:
+    st.subheader("Controle de experiência — 45 e 90 dias")
+    hoje = date.today()
+    base = filtrar_setor(colaboradores, setor)
+    base = base[(base["status"] == "Ativo") & (base["decisao_experiencia"].str.lower() != "efetivado")].copy()
+    linhas: list[dict[str, Any]] = []
+    for _, pessoa in base.iterrows():
+        classificacao, dias45, dias90 = classificar_experiencia(para_data(pessoa["admissao"]), hoje)
+        linhas.append({
+            "Matrícula": pessoa["matricula"], "Funcionário": pessoa["funcionario"], "Setor": pessoa["setor"], "Cargo": pessoa["cargo"],
+            "45 dias": formatar_data((para_data(pessoa["admissao"]) + timedelta(days=45)) if para_data(pessoa["admissao"]) else None),
+            "90 dias": formatar_data((para_data(pessoa["admissao"]) + timedelta(days=90)) if para_data(pessoa["admissao"]) else None),
+            "Situação": classificacao, "Dias p/ 90": dias90 if dias90 is not None else "—",
+        })
+    if not linhas:
+        st.success("Nenhum colaborador pendente de decisão de experiência.")
+    else:
+        tabela = pd.DataFrame(linhas).sort_values("Dias p/ 90", key=lambda s: pd.to_numeric(s, errors="coerce").fillna(99999))
+        st.dataframe(tabela, use_container_width=True, hide_index=True)
+        bloco_exportacao("controle_experiencia", tabela)
+
+
+def tela_ferias(colaboradores: pd.DataFrame, autor: str) -> None:
+    st.subheader("Escala de férias")
+    opcoes, mapa = opcoes_colaboradores(colaboradores, apenas_ativos=True)
+    with st.form("form_ferias", clear_on_submit=True):
+        matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor]) if opcoes else None
+        c1, c2 = st.columns(2)
+        inicio = c1.date_input("Início", value=date.today())
+        retorno = c2.date_input("Retorno previsto", value=date.today() + timedelta(days=30))
+        if st.form_submit_button("Registrar férias"):
+            if not matricula:
+                st.error("Selecione um colaborador.")
+            elif retorno <= inicio:
+                st.error("A data de retorno precisa ser posterior à data de início.")
+            else:
+                indice = colaboradores.index[colaboradores["matricula"] == matricula][0]
+                colaboradores.loc[indice, "status"] = "Férias"
+                colaboradores.loc[indice, "ultimas_ferias"] = inicio.isoformat()
+                colaboradores.loc[indice, "data_retorno_ferias"] = retorno.isoformat()
+                if salvar_entidade("colaboradores", colaboradores):
+                    registrar_historico(matricula, colaboradores.loc[indice, "funcionario"], "Férias", f"Férias de {inicio:%d/%m/%Y} a {retorno:%d/%m/%Y}.", autor)
+                    st.rerun()
+    em_ferias = colaboradores[colaboradores["status"] == "Férias"]
+    st.dataframe(tabela_exibicao(em_ferias, ["matricula", "funcionario", "setor", "cargo", "ultimas_ferias", "data_retorno_ferias"]), use_container_width=True, hide_index=True)
+
+
+def tela_indicadores(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str) -> None:
+    st.subheader("Indicadores de frequência e absenteísmo")
+    c1, c2 = st.columns(2)
+    inicio = c1.date_input("Início do período", value=date.today().replace(day=1))
+    fim = c2.date_input("Fim do período", value=date.today())
+    if fim < inicio:
+        st.error("O fim do período precisa ser igual ou posterior ao início.")
+        return
+    base_faltas = filtrar_setor(faltas, setor).copy()
+    base_faltas["data_dt"] = pd.to_datetime(base_faltas["data"], errors="coerce")
+    periodo = base_faltas[(base_faltas["data_dt"] >= pd.Timestamp(inicio)) & (base_faltas["data_dt"] <= pd.Timestamp(fim))]
+    ausencias = periodo[periodo["tipo"] != "Folga Concedida"]
+    dias_ausentes = int(ausencias["dias"].sum()) if not ausencias.empty else 0
+    quadro_medio = len(filtrar_setor(colaboradores, setor).query("status == 'Ativo'"))
+    dias_calendario = (fim - inicio).days + 1
+    taxa = (dias_ausentes / (quadro_medio * dias_calendario) * 100) if quadro_medio and dias_calendario else 0
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Dias de ausência", dias_ausentes)
+    m2.metric("Atestados", int((periodo["tipo"] == "Atestado Médico").sum()))
+    m3.metric("Faltas injustificadas", int((periodo["tipo"] == "Falta Injustificada").sum()))
+    m4.metric("Taxa no período", f"{taxa:.2f}%")
+    st.caption("Taxa = dias de ausência ÷ (colaboradores ativos × dias do período). Folgas concedidas não entram no numerador.")
+    if not periodo.empty:
+        resumo = periodo.groupby("tipo", as_index=False)["dias"].sum().sort_values("dias", ascending=False)
+        st.bar_chart(resumo, x="tipo", y="dias", use_container_width=True)
+
+
+def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
+    if not exigir_admin():
+        return
+    st.subheader("Gestão de colaboradores")
+    aba_novo, aba_editar = st.tabs(["Novo colaborador", "Editar / desligar"])
+    with aba_novo:
+        with st.form("novo_colaborador", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            matricula = c1.text_input("Matrícula").strip()
+            nome = c2.text_input("Nome completo").strip()
+            c3, c4 = st.columns(2)
+            setor = c3.text_input("Setor").strip()
+            cargo = c4.text_input("Cargo").strip()
+            c5, c6, c7 = st.columns(3)
+            admissao = c5.date_input("Admissão", value=date.today())
+            nascimento = c6.date_input("Nascimento", value=date(1990, 1, 1))
+            status = c7.selectbox("Status", STATUS_COLABORADOR)
+            if st.form_submit_button("Cadastrar"):
+                if not matricula or not nome or not setor:
+                    st.error("Matrícula, nome e setor são obrigatórios.")
+                elif (colaboradores["matricula"] == limpar_matricula(matricula)).any():
+                    st.error("Já existe um colaborador com esta matrícula.")
+                else:
+                    novo = {
+                        "matricula": limpar_matricula(matricula), "funcionario": nome, "setor": setor, "cargo": cargo,
+                        "admissao": admissao.isoformat(), "nascimento": nascimento.isoformat(), "status": status,
+                        "ultimas_ferias": "", "data_retorno_ferias": "", "decisao_experiencia": "", "data_desligamento": "",
+                    }
+                    atualizada = pd.concat([colaboradores, pd.DataFrame([novo])], ignore_index=True)
+                    if salvar_entidade("colaboradores", atualizada):
+                        registrar_historico(novo["matricula"], nome, "Cadastro", "Colaborador cadastrado.", autor)
+                        st.rerun()
+
+    with aba_editar:
+        opcoes, mapa = opcoes_colaboradores(colaboradores)
+        if not opcoes:
+            st.info("Nenhum colaborador disponível.")
+            return
+        matricula = st.selectbox("Colaborador para editar", opcoes, format_func=lambda valor: mapa[valor])
+        indice = colaboradores.index[colaboradores["matricula"] == matricula][0]
+        pessoa = colaboradores.loc[indice]
+        with st.form("editar_colaborador"):
+            c1, c2 = st.columns(2)
+            nova_matricula = c1.text_input("Matrícula", value=pessoa["matricula"]).strip()
+            nome = c2.text_input("Nome completo", value=pessoa["funcionario"]).strip()
+            c3, c4 = st.columns(2)
+            setor = c3.text_input("Setor", value=pessoa["setor"]).strip()
+            cargo = c4.text_input("Cargo", value=pessoa["cargo"]).strip()
+            c5, c6, c7 = st.columns(3)
+            admissao = c5.date_input("Admissão", value=para_data(pessoa["admissao"]) or date.today())
+            status = c6.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(pessoa["status"]) if pessoa["status"] in STATUS_COLABORADOR else 0)
+            decisao = c7.selectbox("Experiência", ("", "Em avaliação", "Efetivado", "Não efetivado"), index=("", "Em avaliação", "Efetivado", "Não efetivado").index(pessoa["decisao_experiencia"]) if pessoa["decisao_experiencia"] in ("", "Em avaliação", "Efetivado", "Não efetivado") else 0)
+            data_desligamento = st.date_input("Data do desligamento", value=para_data(pessoa["data_desligamento"]) or date.today(), disabled=status != "Desligado")
+            if st.form_submit_button("Atualizar"):
+                nova_matricula = limpar_matricula(nova_matricula)
+                duplicada = (colaboradores["matricula"] == nova_matricula) & (colaboradores.index != indice)
+                if not nova_matricula or not nome or not setor:
+                    st.error("Matrícula, nome e setor são obrigatórios.")
+                elif duplicada.any():
+                    st.error("A matrícula informada já pertence a outro colaborador.")
+                else:
+                    colaboradores.loc[indice, ["matricula", "funcionario", "setor", "cargo", "admissao", "status", "decisao_experiencia", "data_desligamento"]] = [
+                        nova_matricula, nome, setor, cargo, admissao.isoformat(), status, decisao,
+                        data_desligamento.isoformat() if status == "Desligado" else "",
+                    ]
+                    if salvar_entidade("colaboradores", colaboradores):
+                        evento = "Desligamento" if status == "Desligado" else "Atualização cadastral"
+                        registrar_historico(nova_matricula, nome, evento, f"Status atualizado para {status}.", autor)
+                        st.rerun()
+
+
+def tela_usuarios(usuarios: pd.DataFrame) -> None:
+    if not exigir_admin():
+        return
+    st.subheader("Gestão de usuários")
+    aba_novo, aba_lista = st.tabs(["Novo usuário", "Lista"])
+    with aba_novo:
+        with st.form("novo_usuario", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            nome = c1.text_input("Nome").strip()
+            usuario = c2.text_input("Login", help="Será convertido para letras minúsculas.").strip().lower()
+            c3, c4 = st.columns(2)
+            email = c3.text_input("E-mail").strip().lower()
+            senha = c4.text_input("Senha inicial", type="password")
+            telefone = st.text_input("Telefone (opcional)").strip()
+            perfil = st.selectbox("Perfil", ("Gestor", "Admin"))
+            modulos = st.multiselect("Módulos liberados", TODOS_MODULOS, default=list(TODOS_MODULOS) if perfil == "Admin" else ["Dashboard & Alertas", "Chamada & Faltas do Dia"])
+            if st.form_submit_button("Criar usuário"):
+                if not nome or not usuario or not email:
+                    st.error("Nome, login e e-mail são obrigatórios.")
+                elif (usuarios["usuario"] == usuario).any() or (usuarios["email"] == email).any():
+                    st.error("Já existe um usuário com este login ou e-mail.")
+                else:
+                    erros = validar_senha(senha)
+                    if erros:
+                        st.error(" ".join(erros))
+                    else:
+                        novo = {
+                            "usuario": usuario, "nome": nome, "email": email, "senha_hash": hash_senha(senha),
+                            "perfil": perfil, "modulos": ",".join(TODOS_MODULOS if perfil == "Admin" else modulos),
+                            "telefone": telefone, "ativo": True,
+                        }
+                        if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
+                            st.info("Usuário criado. Compartilhe apenas o login e instrua a pessoa a definir uma senha segura por um canal protegido.")
+                            st.rerun()
+    with aba_lista:
+        st.dataframe(tabela_exibicao(usuarios, ["nome", "usuario", "email", "perfil", "telefone", "ativo"]), use_container_width=True, hide_index=True)
+
+
+def tela_importacao(colaboradores: pd.DataFrame) -> None:
+    if not exigir_admin():
+        return
+    st.subheader("Importar nova base de colaboradores")
+    st.warning("A importação valida a planilha antes de salvar. Nenhum registro existente de outros setores é excluído; matrículas existentes são atualizadas e novos registros são adicionados.")
+    arquivo = st.file_uploader("Planilha .xlsx", type=["xlsx"])
+    if not arquivo:
+        return
+    try:
+        bruto = pd.read_excel(arquivo, dtype=object)
+        importado, _ = normalizar_entidade(bruto, "colaboradores")
+    except Exception as erro:
+        st.error(f"Não foi possível processar a planilha: {erro}")
+        return
+    erros: list[str] = []
+    obrigatorios = {"matricula": "Matrícula", "funcionario": "Funcionário", "setor": "Setor", "admissao": "Admissão"}
+    for campo, rotulo in obrigatorios.items():
+        if (importado[campo].map(limpar_texto) == "").any():
+            erros.append(f"Existem linhas sem {rotulo}.")
+    if importado["matricula"].duplicated().any():
+        erros.append("A planilha possui matrículas duplicadas.")
+    if importado["admissao"].isna().any() or (importado["admissao"] == "").any():
+        erros.append("Existem datas de admissão inválidas ou ausentes.")
+    if erros:
+        for erro in erros:
+            st.error(erro)
+        return
+    st.markdown("#### Prévia validada")
+    st.dataframe(tabela_exibicao(importado.head(20), ["matricula", "funcionario", "setor", "cargo", "admissao", "status"]), use_container_width=True, hide_index=True)
+    confirmar = st.checkbox("Confirmo que revisei a prévia e desejo aplicar as atualizações de forma incremental.")
+    if st.button("Importar e atualizar base", disabled=not confirmar):
+        combinado = colaboradores.set_index("matricula")
+        atualizacoes = importado.set_index("matricula")
+        combinado.update(atualizacoes)
+        novos = atualizacoes.loc[~atualizacoes.index.isin(combinado.index)]
+        resultado = pd.concat([combinado, novos]).reset_index()
+        if salvar_entidade("colaboradores", resultado):
+            st.success(f"Importação concluída com sucesso: {len(importado)} linhas processadas e enviadas ao Supabase.")
             st.rerun()
 
-    st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.4.6 (Blindagem contra Erro de Arquivo)**")
-    st.divider()
 
-    if not df.empty:
-        if 'dt_nasc_dt' in df.columns:
-            aniversariantes_hoje = df[
-                (df['dt_nasc_dt'].dt.month == hoje.month) & 
-                (df['dt_nasc_dt'].dt.day == hoje.day)
-            ]
-            if not aniversariantes_hoje.empty:
-                st.balloons()
-                for _, colab in aniversariantes_hoje.iterrows():
-                    st.success(f"🎉 **HOJE É ANIVERSÁRIO DE:** {colab['Funcionário']} ({colab.get('Cargo', 'N/A')} - Setor: {colab.get('Setor', 'N/A')})! Parabéns! 🎂🎈")
+def tela_assistente_ia() -> None:
+    st.subheader("Assistente IA para DP e Gestão")
+    chave = segredo("GEMINI_API_KEY")
+    if not chave:
+        st.info("Assistente desativado. Configure GEMINI_API_KEY em secrets.toml para habilitá-lo.")
+        return
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=chave)
+        modelo = genai.GenerativeModel("gemini-1.5-pro")
+    except Exception as erro:
+        st.error(f"Não foi possível iniciar o assistente: {erro}")
+        return
+    st.caption("Não inclua CPF, CID, senhas, dados bancários ou outras informações pessoais sensíveis na conversa.")
+    historico = st.session_state.setdefault("historico_ia", [])
+    for mensagem in historico:
+        with st.chat_message(mensagem["role"]):
+            st.markdown(mensagem["content"])
+    pergunta = st.chat_input("Digite uma pergunta sobre DP e gestão")
+    if pergunta:
+        historico.append({"role": "user", "content": pergunta})
+        with st.chat_message("user"):
+            st.markdown(pergunta)
+        contexto = "\n".join(f"{m['role']}: {m['content']}" for m in historico[-8:])
+        instrucao = "Você é um assistente de DP e gestão. Responda em português, de forma objetiva, sem solicitar dados pessoais sensíveis.\n"
+        with st.chat_message("assistant"):
+            with st.spinner("Analisando..."):
+                try:
+                    resposta = modelo.generate_content(instrucao + contexto)
+                    texto = getattr(resposta, "text", "Não foi possível gerar uma resposta para esta solicitação.")
+                    st.markdown(texto)
+                    historico.append({"role": "assistant", "content": texto})
+                except Exception as erro:
+                    st.error(f"Erro ao consultar o assistente: {erro}")
 
-        st.sidebar.header("🔍 Filtros & Navegação")
-        lista_setores = ["Todos os Setores"] + sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Todos os Setores"]
-        setor_selecionado = st.sidebar.selectbox("Filtrar por Setor", lista_setores)
-        
-        if setor_selecionado != "Todos os Setores":
-            df_filtrado = df[df['Setor'] == setor_selecionado].copy()
-            df_faltas_filtrado = df_faltas[df_faltas['Setor'] == setor_selecionado].copy() if not df_faltas.empty else df_faltas.copy()
-        else:
-            df_filtrado = df.copy()
-            df_faltas_filtrado = df_faltas.copy()
 
-        modulos_liberados = st.session_state.get("usuario_modulos", TODOS_MODULOS)
-        if not modulos_liberados:
-            modulos_liberados = ["Dashboard & Alertas"]
+def aplicar_estilo() -> None:
+    st.markdown("""
+    <style>
+      .stApp { background: #0E1117; color: #F8FAFC; }
+      [data-testid="stSidebar"] { background: #163A2A; }
+      [data-testid="stSidebar"] * { color: #F8FAFC !important; }
+      div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
+        background: #F97316; color: white; border: 0; border-radius: 8px; font-weight: 700;
+      }
+      div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover { background: #EA580C; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
 
-        menu = st.sidebar.radio("Navegação", modulos_liberados)
 
-        df_exp = df_filtrado.copy()
-        df_exp['exp_45'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=45) if pd.notnull(d) else None)
-        df_exp['exp_90'] = df_exp['dt_adm'].apply(lambda d: d + timedelta(days=90) if pd.notnull(d) else None)
-        df_exp['dias_para_45'] = df_exp['exp_45'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
-        df_exp['dias_para_90'] = df_exp['exp_90'].apply(lambda d: (d - hoje).days if pd.notnull(d) else 999)
+def main() -> None:
+    aplicar_estilo()
+    if not tela_login():
+        return
 
-        df_apenas_exp = df_exp[(df_exp['Status'].astype(str).str.lower() == 'ativo') & (df_exp['dias_para_90'] >= 0) & (df_exp['Decisao_Experiencia'] != 'Efetivado')].copy()
+    colaboradores, fonte = carregar_entidade("colaboradores")
+    usuarios, _ = carregar_entidade("usuarios")
+    faltas, _ = carregar_entidade("faltas")
+    epis, _ = carregar_entidade("epis")
+    historico, _ = carregar_entidade("historico")
 
-        if menu == "Dashboard & Alertas":
-            st.subheader("⚠️ Painel Geral de Indicadores")
-            df_ativos = df_filtrado[df_filtrado['Status'].astype(str).str.lower() == 'ativo']
-            df_ferias_st = df_filtrado[df_filtrado['Status'].astype(str).str.lower().str.contains('f[eé]rias', case=False, na=False)]
-            df_afastados = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Atestado|Afastado|INSS|Licença|licenca', case=False, na=False)]
-            
-            # --- ALERTA DE RETORNO DE FÉRIAS (ÚLTIMOS 2 DIAS) ---
-            if not df_ferias_st.empty and 'dt_ult_ferias' in df_ferias_st.columns:
-                for _, colab_fer in df_ferias_st.iterrows():
-                    dt_inicio_f = colab_fer.get('dt_ult_ferias')
-                    if pd.notnull(dt_inicio_f):
-                        dt_retorno_f = dt_inicio_f + timedelta(days=30)
-                        dias_ate_retorno = (dt_retorno_f - hoje).days
-                        if dias_ate_retorno <= 2:
-                            if dias_ate_retorno == 0:
-                                st.warning(f"🏖️ **RETORNO DE FÉRIAS HOJE:** O(a) colaborador(a) **{colab_fer['Funcionário']}** ({colab_fer.get('Setor', 'N/A')}) retorna das férias **hoje** ({dt_retorno_f.strftime('%d/%m/%Y')})! Lembre-se de reativar o status no cadastro.")
-                            elif dias_ate_retorno == 1:
-                                st.warning(f"🏖️ **RETORNO DE FÉRIAS AMANHÃ:** O(a) colaborador(a) **{colab_fer['Funcionário']}** ({colab_fer.get('Setor', 'N/A')}) retorna das férias **amanhã** ({dt_retorno_f.strftime('%d/%m/%Y')})!")
-                            elif dias_ate_retorno == 2:
-                                st.info(f"🏖️ **FÉRIAS VENCENDO EM BREVE:** O(a) colaborador(a) **{colab_fer['Funcionário']}** ({colab_fer.get('Setor', 'N/A')}) retorna em 2 dias ({dt_retorno_f.strftime('%d/%m/%Y')}).")
-                            elif dias_ate_retorno < 0:
-                                st.error(f"⚠️ **ATENÇÃO AO DP:** O prazo de férias de **{colab_fer['Funcionário']}** venceu em {dt_retorno_f.strftime('%d/%m/%Y')} e ele(a) ainda consta como 'Férias'.")
+    st.session_state["fonte_colaboradores"] = fonte
+    nome = st.session_state["nome_usuario"]
+    perfil = st.session_state["perfil"]
+    modulos = st.session_state["modulos"] or ["Dashboard & Alertas"]
+    modulos = [modulo for modulo in modulos if modulo not in MODULOS_ADMIN or perfil == "Admin"]
 
-            chamada_hoje_existente = df_faltas_filtrado[df_faltas_filtrado['dt_falta'] == hoje] if not df_faltas_filtrado.empty else pd.DataFrame()
-            chamada_realizada = not chamada_hoje_existente.empty
+    st.sidebar.title("🍊 Gestão & DP")
+    st.sidebar.caption(f"{nome} · {perfil}")
+    st.sidebar.caption(f"Fonte atual: **{fonte}**")
+    if st.session_state.get("erro_supabase"):
+        st.sidebar.warning(st.session_state.get("erro_supabase"))
+    if st.sidebar.button("Sair"):
+        encerrar_sessao()
+    alterar_minha_senha()
 
-            if chamada_realizada:
-                df_folgas_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] == 'Folga Concedida']
-                df_ausencias_hoje = chamada_hoje_existente[chamada_hoje_existente['Tipo'] != 'Folga Concedida']
-                qtd_folgas_hoje = len(df_folgas_hoje)
-                qtd_faltantes_hoje = len(df_ausencias_hoje)
-                qtd_presentes_hoje = max(0, len(df_ativos) - qtd_faltantes_hoje - qtd_folgas_hoje)
-            else:
-                qtd_presentes_hoje = 0
-                qtd_folgas_hoje = 0
-                qtd_faltantes_hoje = 0
-                df_folgas_hoje = pd.DataFrame()
-                df_ausencias_hoje = pd.DataFrame()
-                st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada.")
+    setores = ["Todos os setores"] + sorted([valor for valor in colaboradores["setor"].dropna().unique() if limpar_texto(valor)])
+    setor = st.sidebar.selectbox("Filtrar por setor", setores)
+    menu = st.sidebar.radio("Navegação", modulos)
 
-            c1, c2, c3, c4, c5, c6 = st.columns(6)
-            c1.metric("Total Quadro", len(df_filtrado))
-            if c1.button("🔍 Ver Quadro", key="btn_quadro_v16"):
-                exibir_modal_detalhes("Quadro Geral de Colaboradores", df_filtrado[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status', 'Admissão', 'Data_Desligamento'] if c in df_filtrado.columns]])
-            
-            c2.metric("Ativos", len(df_ativos))
-            if c2.button("🔍 Ver Ativos", key="btn_ativos_v16"):
-                exibir_modal_detalhes("Colaboradores Ativos no Quadro", df_ativos[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_ativos.columns]])
+    st.title("Painel de Gestão & DP")
+    st.caption("Versão corrigida: prioridade absoluta ao Supabase, salvamento seguro e importação incremental por setor.")
 
-            c3.metric("Em Férias", len(df_ferias_st))
-            if c3.button("🔍 Ver Férias", key="btn_ferias_v16"):
-                exibir_modal_detalhes("Colaboradores em Gozo de Férias", df_ferias_st[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias', 'Status'] if c in df_ferias_st.columns]])
+    if menu == "Dashboard & Alertas":
+        tela_dashboard(colaboradores, faltas, setor)
+    elif menu == "Assistente IA (DP & Gestão)":
+        tela_assistente_ia()
+    elif menu == "Chamada & Faltas do Dia":
+        tela_chamada(colaboradores, faltas, setor, nome)
+    elif menu == "Solicitação & Entrega de EPI":
+        tela_epi(colaboradores, epis, setor, nome)
+    elif menu == "Ficha Individual do Colaborador":
+        tela_ficha(colaboradores, historico)
+    elif menu == "Controle de Experiência (45/90 dias)":
+        tela_experiencia(colaboradores, setor)
+    elif menu == "Escala de Férias":
+        tela_ferias(colaboradores, nome)
+    elif menu == "Colaboradores em Férias":
+        ferias = filtrar_setor(colaboradores[colaboradores["status"] == "Férias"], setor)
+        st.subheader("Colaboradores em férias")
+        st.dataframe(tabela_exibicao(ferias, ["matricula", "funcionario", "setor", "cargo", "ultimas_ferias", "data_retorno_ferias"]), use_container_width=True, hide_index=True)
+    elif menu == "Indicadores de Frequência & Absenteísmo":
+        tela_indicadores(colaboradores, faltas, setor)
+    elif menu == "Aniversariantes do Mês":
+        st.subheader("Aniversariantes do mês")
+        mes = st.selectbox("Mês", range(1, 13), index=date.today().month - 1, format_func=lambda numero: date(2000, numero, 1).strftime("%B").capitalize())
+        aniversariantes = filtrar_setor(colaboradores, setor)
+        aniversariantes = aniversariantes[aniversariantes["nascimento"].map(lambda valor: (para_data(valor) or date(1900, 1, 1)).month == mes)]
+        aniversariantes = aniversariantes.sort_values("nascimento")
+        st.dataframe(tabela_exibicao(aniversariantes, ["nascimento", "funcionario", "setor", "cargo"]), use_container_width=True, hide_index=True)
+    elif menu == "Cadastrar / Editar Colaborador":
+        tela_colaboradores(colaboradores, nome)
+    elif menu == "Criar / Gerenciar Usuários":
+        tela_usuarios(usuarios)
+    elif menu == "Importar Nova Base":
+        tela_importacao(colaboradores)
 
-            c4.metric("Atest./Afast./INSS", len(df_afastados))
-            if c4.button("🔍 Ver Afastados", key="btn_afastados_v16"):
-                exibir_modal_detalhes("Colaboradores Afastados / Atestado / INSS", df_afastados[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Status'] if c in df_afastados.columns]])
 
-            c5.metric("Faltas Hoje", qtd_faltantes_hoje)
-            if c5.button("🔍 Ver Faltas", key="btn_faltas_v16"):
-                exibir_modal_detalhes(f"Colaboradores Ausentes em {hoje.strftime('%d/%m/%Y')}", df_ausencias_hoje if not df_ausencias_hoje.empty else pd.DataFrame())
-
-            niver_mes = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == hoje.month] if 'dt_nasc_dt' in df_filtrado.columns else pd.DataFrame()
-            c6.metric("Aniversariantes", len(niver_mes))
-            if c6.button("🔍 Ver Aniversár.", key="btn_niver_v16"):
-                if not niver_mes.empty:
-                    df_niver_show = niver_mes.copy()
-                    df_niver_show['Dia'] = df_niver_show['dt_nasc_dt'].dt.day
-                    df_niver_show = df_niver_show.sort_values(by='Dia')
-                    cols_show = ['Dia', 'Funcionário', 'Setor', 'Cargo']
-                    cols_show = [c for c in cols_show if c in df_niver_show.columns]
-                    exibir_modal_detalhes(f"Aniversariantes do Mês ({hoje.strftime('%m/%Y')})", df_niver_show[cols_show])
-                else:
-                    exibir_modal_detalhes(f"Aniversariantes do Mês ({hoje.strftime('%m/%Y')})", pd.DataFrame())
-
-        elif menu == "🤖 Assistente IA (DP & Gestão)":
-            st.subheader("🤖 Assistente de Inteligência Artificial — Tropical DP")
-            if not ia_disponivel:
-                st.warning("⚠️ Chave da API do Gemini não configurada.")
-            else:
-                if "historico_chat" not in st.session_state:
-                    st.session_state["historico_chat"] = []
-                for mensagem in st.session_state["historico_chat"]:
-                    with st.chat_message(mensagem["role"]):
-                        st.markdown(mensagem["content"])
-                pergunta_usuario = st.chat_input("Digite sua dúvida para o Assistente IA...")
-                if pergunta_usuario:
-                    st.session_state["historico_chat"].append({"role": "user", "content": pergunta_usuario})
-                    with st.chat_message("user"):
-                        st.markdown(pergunta_usuario)
-                    with st.chat_message("assistant"):
-                        with st.spinner("Pensando..."):
-                            try:
-                                resp = modelo_ia.generate_content(f"Especialista DP Tropical. Pergunta: {pergunta_usuario}")
-                                st.markdown(resp.text)
-                                st.session_state["historico_chat"].append({"role": "assistant", "content": resp.text})
-                            except Exception as e:
-                                st.error(f"Erro: {e}")
-
-        elif menu == "Chamada & Faltas do Dia":
-            st.subheader(f"📌 Chamada Diária & Ocorrências - {setor_selecionado}")
-            tab_chamada, tab_avulso, tab_hist_f = st.tabs(["☑️ Chamada Diária", "➕ Lançamento Avulso", "📋 Histórico"])
-            with tab_chamada:
-                termos_lideranca = ['gerente', 'supervisor', 'encarregado', 'coordenador', 'líder', 'lider']
-                colabs_operacionais = df_filtrado[
-                    (df_filtrado['Status'].astype(str).str.lower() == 'ativo') & 
-                    (~df_filtrado['Cargo'].astype(str).str.lower().str.contains('|'.join(termos_lideranca), na=False))
-                ].copy()
-
-                if colabs_operacionais.empty:
-                    st.warning("Nenhum colaborador operacional ativo.")
-                else:
-                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v16")
-                    data_chamada = pd.to_datetime(data_chamada_txt, dayfirst=True, errors='coerce').date() or hoje
-                    
-                    faltas_existentes = df_faltas[(df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado)] if not df_faltas.empty else pd.DataFrame()
-
-                    with st.form("form_chamada_diaria"):
-                        for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
-                            nome_c = colab_c['Funcionário']
-                            val_pres, val_folga = True, False
-                            if not faltas_existentes.empty:
-                                reg_c = faltas_existentes[faltas_existentes['Funcionário'] == nome_c]
-                                if not reg_c.empty:
-                                    if reg_c.iloc[0].get('Tipo') == 'Folga Concedida': val_folga = True
-                                    else: val_pres = False
-
-                            c_n, c_p, c_f = st.columns([2.5, 1, 1])
-                            c_n.markdown(f"**{nome_c}**")
-                            c_p.checkbox("Presente", value=val_pres, key=f"chk_pres_{i_c}")
-                            c_f.checkbox("Folga", value=val_folga, key=f"chk_folga_{i_c}")
-                        
-                        if st.form_submit_button("💾 Salvar Chamada"):
-                            df_faltas = df_faltas[~((df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado))]
-                            novas_f = []
-                            for i_c, (_, colab_c) in enumerate(colabs_operacionais.iterrows()):
-                                p = st.session_state.get(f"chk_pres_{i_c}", False)
-                                f = st.session_state.get(f"chk_folga_{i_c}", False)
-                                if f:
-                                    novas_f.append({"Matricula": str(colab_c.get('Matricula', '')), "Funcionário": colab_c['Funcionário'], "Setor": colab_c.get('Setor', ''), "Data": data_chamada.strftime('%d/%m/%Y'), "Tipo": "Folga Concedida", "Dias": 1, "CID": "-", "Motivo": "Folga", "dt_falta": data_chamada})
-                                elif not p:
-                                    t_ini = "Ausência / A Confirmar" if data_chamada < hoje else "Falta Injustificada"
-                                    novas_f.append({"Matricula": str(colab_c.get('Matricula', '')), "Funcionário": colab_c['Funcionário'], "Setor": colab_c.get('Setor', ''), "Data": data_chamada.strftime('%d/%m/%Y'), "Tipo": t_ini, "Dias": 1, "CID": "-", "Motivo": "Ausente", "dt_falta": data_chamada})
-                            if novas_f:
-                                df_faltas = pd.concat([df_faltas, pd.DataFrame(novas_f)], ignore_index=True)
-                            salvar_faltas(df_faltas)
-                            st.success("✅ Salvo com sucesso! Chamada registrada.")
-                            st.rerun()
-
-            with tab_avulso:
-                with st.form("form_avulso", clear_on_submit=True):
-                    colabs_l = sorted(df_filtrado[df_filtrado['Status'].astype(str).str.lower().isin(['ativo', 'férias', 'ferias'])]['Funcionário'].unique())
-                    n_colab = st.selectbox("Colaborador:", colabs_l)
-                    t_f = st.selectbox("Tipo:", ["Falta Injustificada", "Atestado Médico", "Folga Concedida"])
-                    d_f = st.text_input("Data (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'))
-                    dias_n = st.number_input("Dias:", 1, 60, 1)
-                    cid_v = st.text_input("CID:", "")
-                    obs_v = st.text_input("Observação:", "")
-                    if st.form_submit_button("Salvar Avulso") and n_colab:
-                        d_c = df_filtrado[df_filtrado['Funcionário'] == n_colab].iloc[0]
-                        dt_parsed = pd.to_datetime(d_f, dayfirst=True, errors='coerce').date() or hoje
-                        novo_av = {"Matricula": str(d_c.get('Matricula', '')), "Funcionário": n_colab, "Setor": d_c.get('Setor', ''), "Data": dt_parsed.strftime('%d/%m/%Y'), "Tipo": t_f, "Dias": dias_n, "CID": cid_v.upper() or "-", "Motivo": obs_v, "dt_falta": dt_parsed}
-                        df_faltas = pd.concat([df_faltas, pd.DataFrame([novo_av])], ignore_index=True)
-                        salvar_faltas(df_faltas)
-                        st.success("✅ Salvo com sucesso! Lançamento avulso gravado.")
-                        st.rerun()
-
-            with tab_hist_f:
-                if not df_faltas_filtrado.empty:
-                    st.dataframe(df_faltas_filtrado, use_container_width=True)
-
-        elif menu == "🦺 Solicitação & Entrega de EPI":
-            st.subheader("🦺 Módulo de Solicitação e Entrega de EPI")
-            with st.form("form_epi", clear_on_submit=True):
-                colabs_epi = sorted(df_filtrado[df_filtrado['Status'].astype(str).str.lower() == 'ativo']['Funcionário'].unique())
-                colab_escolhido = st.selectbox("Selecione o Colaborador:", colabs_epi)
-                
-                c_e1, c_e2, c_e3 = st.columns(3)
-                tipo_epi = c_e1.selectbox("Tipo de EPI:", ["Camiseta", "Bota Bico de Aço"])
-                
-                tamanho_sel = "-"
-                if tipo_epi == "Camiseta":
-                    tamanho_sel = c_e2.selectbox("Tamanho da Camiseta:", ["P", "M", "G", "GG"])
-                else:
-                    tamanho_sel = c_e2.text_input("Numeração da Bota (Ex: 39, 40, 41):", value="")
-                
-                data_pedido_txt = c_e3.text_input("Data (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'))
-                obs_epi = st.text_input("Observações:", value="")
-
-                if st.form_submit_button("🦺 Registrar Entrega & Gerar Notificação") and colab_escolhido:
-                    dados_colab = df_filtrado[df_filtrado['Funcionário'] == colab_escolhido].iloc[0]
-                    detalhe_completo = f"{tipo_epi} - Tam/Num: {tamanho_sel} | Obs: {obs_epi}"
-                    dt_p_parsed = pd.to_datetime(data_pedido_txt, dayfirst=True, errors='coerce').date() or hoje
-                    
-                    novo_registro_epi = {
-                        "Matricula": str(dados_colab.get('Matricula', '')),
-                        "Funcionário": colab_escolhido,
-                        "Setor": dados_colab.get('Setor', ''),
-                        "Data": dt_p_parsed.strftime('%d/%m/%Y'),
-                        "EPI": tipo_epi,
-                        "Detalhe_Tamanho": str(tamanho_sel),
-                        "Responsavel": nome_usuario
-                    }
-                    
-                    df_epis = pd.concat([df_epis, pd.DataFrame([novo_registro_epi])], ignore_index=True)
-                    salvar_epis(df_epis)
-                    registrar_historico(dados_colab.get('Matricula', ''), colab_escolhido, "Entrega de EPI", detalhe_completo, nome_usuario)
-                    st.success("✅ Salvo com sucesso! EPI registrado.")
-
-        elif menu == "👤 Ficha Individual do Colaborador":
-            st.subheader("👤 Prontuário & Ficha Individual 360º")
-            lista_todos_colabs = sorted(df['Funcionário'].dropna().unique())
-            if not lista_todos_colabs:
-                st.warning("Nenhum colaborador encontrado.")
-            else:
-                colab_sel = st.selectbox("Selecione o Colaborador:", lista_todos_colabs)
-                r_c = df[df['Funcionário'] == colab_sel].iloc[0]
-                c_f1, c_f2 = st.columns([1, 2])
-                with c_f1:
-                    st.markdown(f"### 👤 {r_c['Funcionário']}")
-                    st.markdown(f"**Matrícula:** {r_c.get('Matricula', 'N/A')}")
-                    st.markdown(f"**Cargo:** {r_c.get('Cargo', 'N/A')}")
-                    st.markdown(f"**Setor:** {r_c.get('Setor', 'N/A')}")
-                    st.markdown(f"**Status Atual:** `{r_c.get('Status', 'Ativo')}`")
-                with c_f2:
-                    dt_adm_txt = r_c['dt_adm'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_adm')) else 'N/A'
-                    dt_nasc_txt = r_c['dt_nasc'].strftime('%d/%m/%Y') if pd.notnull(r_c.get('dt_nasc')) else 'N/A'
-                    ult_f_txt = str(r_c.get('Ultimas_Ferias')) if pd.notnull(r_c.get('Ultimas_Ferias')) and str(r_c.get('Ultimas_Ferias')) != 'None' else 'Nenhuma registrada'
-                    st.info(f"📅 **Admissão:** {dt_adm_txt} | 🎂 **Nascimento:** {dt_nasc_txt}\n\n🏖️ **Últimas Férias:** {ult_f_txt}")
-
-        elif menu == "📊 Indicadores de Frequência & Absenteísmo":
-            st.subheader("📊 Painel Analítico de Assiduidade & Ocorrências")
-            if df_faltas_filtrado.empty:
-                st.info("Nenhuma ocorrência registrada.")
-            else:
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Dias Afastados", df_faltas_filtrado['Dias'].sum())
-                m2.metric("Atestados", len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Atestado Médico']))
-                m3.metric("Faltas Injustificadas", len(df_faltas_filtrado[df_faltas_filtrado['Tipo'] == 'Falta Injustificada']))
-
-        elif menu == "Controle de Experiência (45/90 dias)":
-            st.subheader(f"📋 Período de Experiência - {setor_selecionado}")
-            if df_apenas_exp.empty:
-                st.success("Nenhum colaborador em experiência.")
-            else:
-                df_ex = df_apenas_exp[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Admissão'] if c in df_apenas_exp.columns]].copy()
-                df_ex['Vencimento 45d'] = df_apenas_exp['exp_45'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "")
-                df_ex['Vencimento 90d'] = df_apenas_exp['exp_90'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notnull(d) else "")
-                st.dataframe(df_ex, use_container_width=True)
-
-        elif menu == "Escala Inteligente de Férias":
-            ferias.renderizar_modulo_ferias(df)
-
-        elif menu == "🏖️ Colaboradores em Férias":
-            st.subheader("🏖️ Colaboradores em Gozo de Férias")
-            df_fer = df_filtrado[df_filtrado['Status'].astype(str).str.lower().str.contains('f[eé]rias', case=False, na=False)]
-            if df_fer.empty:
-                st.info("Nenhum colaborador em férias.")
-            else:
-                st.dataframe(df_fer[[c for c in ['Matricula', 'Funcionário', 'Setor', 'Cargo', 'Ultimas_Ferias', 'Status'] if c in df_fer.columns]], use_container_width=True)
-
-        elif menu == "Aniversariantes do Mês":
-            st.subheader(f"🎂 Aniversariantes do Mês - {setor_selecionado}")
-            meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-            m_idx = st.selectbox("Selecione o Mês:", range(1, 13), index=hoje.month - 1, format_func=lambda m: meses[m-1])
-            if 'dt_nasc_dt' in df_filtrado.columns:
-                df_niv = df_filtrado[df_filtrado['dt_nasc_dt'].dt.month == m_idx].copy()
-                if not df_niv.empty:
-                    df_niv['Dia'] = df_niv['dt_nasc_dt'].dt.day
-                    df_niv = df_niv.sort_values(by='Dia')
-                    cols_show = ['Dia', 'Funcionário', 'Setor', 'Cargo']
-                    cols_show = [c for c in cols_show if c in df_niv.columns]
-                    st.dataframe(df_niv[cols_show], use_container_width=True)
-                else:
-                    st.info("Nenhum aniversariante neste mês.")
-
-        elif menu == "Cadastrar / Editar Colaborador":
-            st.subheader("👥 Gestão de Colaboradores (Datas Livres & Supabase)")
-            t_cad, t_ed = st.tabs(["➕ Novo Colaborador", "✏️ Editar / Desligar"])
-            
-            with t_cad:
-                with st.form("f_novo", clear_on_submit=True):
-                    c1, c2 = st.columns(2)
-                    mat_c = c1.text_input("Matrícula:")
-                    nom_c = c2.text_input("Nome Completo:")
-                    s1, s2 = st.columns(2)
-                    set_c = s1.selectbox("Setor:", sorted(list(df['Setor'].dropna().unique())) if 'Setor' in df.columns else ["Geral"])
-                    car_c = s2.text_input("Cargo:")
-                    d1, d2, d3 = st.columns(3)
-                    
-                    adm_txt = d1.text_input("Admissão (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'))
-                    nasc_txt = d2.text_input("Nascimento (DD/MM/AAAA):", value="01/01/1990")
-                    st_c = d3.selectbox("Status:", ["Ativo", "Férias", "Afastado", "Desligado"])
-                    
-                    if st.form_submit_button("Salvar") and nom_c:
-                        dt_adm_p = pd.to_datetime(adm_txt, dayfirst=True, errors='coerce').date() or hoje
-                        dt_nasc_p = pd.to_datetime(nasc_txt, dayfirst=True, errors='coerce').date() or date(1990,1,1)
-                        
-                        novo = {
-                            "Matricula": str(mat_c), 
-                            "Funcionário": str(nom_c), 
-                            "Setor": str(set_c), 
-                            "Cargo": str(car_c), 
-                            "Admissão": dt_adm_p.strftime('%d/%m/%Y'), 
-                            "Nascimento": dt_nasc_p.strftime('%d/%m/%Y'), 
-                            "Status": str(st_c),
-                            "Ultimas_Ferias": None,
-                            "Decisao_Experiencia": None,
-                            "Data_Desligamento": None
-                        }
-                        df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
-                        salvar_dados(df)
-                        registrar_historico(mat_c, nom_c, "Cadastro Inicial", "Colaborador cadastrado no sistema", nome_usuario)
-                        st.success("✅ Salvo com sucesso no Supabase e na base!")
-                        st.rerun()
-
-            with t_ed:
-                colabs_e = sorted(df['Funcionário'].dropna().unique())
-                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v16")
-                if sel_e:
-                    idx_el = df[df['Funcionário'] == sel_e].index[0]
-                    row_e = df.loc[idx_el]
-                    
-                    em = st.text_input("Matrícula:", value=str(row_e.get('Matricula', '')))
-                    en = st.text_input("Nome:", value=str(row_e['Funcionário']))
-                    eset = st.text_input("Setor:", value=str(row_e.get('Setor', '')))
-                    ecar = st.text_input("Cargo:", value=str(row_e.get('Cargo', '')))
-                    
-                    ed1, ed2, ed3 = st.columns(3)
-                    val_ad = row_e.get('dt_adm') if pd.notnull(row_e.get('dt_adm')) else hoje
-                    default_adm_str = val_ad.strftime('%d/%m/%Y') if hasattr(val_ad, 'strftime') else str(val_ad)
-                    
-                    ead_txt = ed1.text_input("Admissão (DD/MM/AAAA):", value=default_adm_str)
-                    
-                    opts_st = ["Ativo", "Férias", "Afastado", "Desligado"]
-                    st_at = str(row_e.get('Status', 'Ativo')).strip()
-                    st_at_idx = 0
-                    for idx_opt, opt in enumerate(opts_st):
-                        if opt.lower() in st_at.lower():
-                            st_at_idx = idx_opt
-                            break
-                            
-                    est = ed2.selectbox("Status:", opts_st, index=st_at_idx, key="sb_status_desligamento_v16")
-                    
-                    val_uf_atual = row_e.get('Ultimas_Ferias')
-                    val_uf_str = str(val_uf_atual) if pd.notnull(val_uf_atual) and str(val_uf_atual) not in ['nan', 'None', ''] else ""
-                    euf_txt = ed3.text_input("Últimas Férias (DD/MM/AAAA):", value=val_uf_str, placeholder="Ex: 05/08/2026")
-                    
-                    ddes_txt = ""
-                    if est == "Desligado":
-                        st.warning("⚠️ Informe a data do desligamento abaixo:")
-                        vd_at = row_e.get('Data_Desligamento')
-                        vd_str = str(vd_at) if pd.notnull(vd_at) and str(vd_at) not in ['nan', 'None', ''] else hoje.strftime('%d/%m/%Y')
-                        ddes_txt = st.text_input("Data Desligamento (DD/MM/AAAA):", value=vd_str, key="txt_data_deslig_v16")
-
-                    if st.button("Atualizar Colaborador"):
-                        dt_adm_parsed = pd.to_datetime(ead_txt, dayfirst=True, errors='coerce').date() or hoje
-                        dt_fer_parsed = pd.to_datetime(euf_txt, dayfirst=True, errors='coerce').strftime('%d/%m/%Y') if euf_txt.strip() else None
-                        
-                        df.loc[idx_el, 'Matricula'] = str(em)
-                        df.loc[idx_el, 'Funcionário'] = str(en)
-                        df.loc[idx_el, 'Setor'] = str(eset)
-                        df.loc[idx_el, 'Cargo'] = str(ecar)
-                        df.loc[idx_el, 'Admissão'] = dt_adm_parsed.strftime('%d/%m/%Y')
-                        df.loc[idx_el, 'Status'] = str(est)
-                        df.loc[idx_el, 'Ultimas_Ferias'] = dt_fer_parsed
-                        
-                        if 'Data_Desligamento' not in df.columns:
-                            df['Data_Desligamento'] = None
-                        
-                        if est == "Desligado" and ddes_txt:
-                            dt_des_parsed = pd.to_datetime(ddes_txt, dayfirst=True, errors='coerce').date() or hoje
-                            df.at[idx_el, 'Data_Desligamento'] = str(dt_des_parsed.strftime('%d/%m/%Y'))
-                            registrar_historico(em, en, "Desligamento", f"Colaborador desligado em {dt_des_parsed.strftime('%d/%m/%Y')}", nome_usuario)
-                        else:
-                            df.at[idx_el, 'Data_Desligamento'] = None
-                            registrar_historico(em, en, "Atualização Cadastral", f"Dados atualizados para status {est}", nome_usuario)
-                        
-                        salvar_dados(df)
-                        st.success("✅ Salvo com sucesso no Supabase e na base!")
-                        st.balloons()
-                        st.rerun()
-
-        elif menu == "⚙️ Criar / Gerenciar Usuários":
-            st.subheader("⚙️ Gestão de Usuários")
-            df_usuarios = carregar_usuarios()
-            t_nu, t_eu, t_lu = st.tabs(["➕ Novo", "✏️ Editar", "📋 Lista"])
-            with t_nu:
-                with st.form("f_nu", clear_on_submit=True):
-                    nu1, nu2 = st.columns(2)
-                    nn = nu1.text_input("Nome:")
-                    nl = nu2.text_input("Login:").lower()
-                    ne1, ne2, nt1 = st.columns([1.5, 1.5, 1])
-                    ne = ne1.text_input("E-mail:").lower()
-                    ns = ne2.text_input("Senha:", type="password")
-                    nt = nt1.text_input("WhatsApp:")
-                    np1, np2 = st.columns(2)
-                    nperf = np1.selectbox("Perfil:", ["Gestor", "Admin"])
-                    
-                    mods_s = []
-                    cm = st.columns(2)
-                    for i_m, mn in enumerate(TODOS_MODULOS):
-                        with cm[i_m % 2]:
-                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v16"):
-                                mods_s.append(mn)
-                    if st.form_submit_button("Criar Usuário") and nn and nl and ns:
-                        if nl in df_usuarios['Usuario'].astype(str).str.lower().values:
-                            st.error("Login já existe!")
-                        else:
-                            nu_dict = {"Nome": nn, "Usuario": nl, "Email": ne, "Senha": ns, "Perfil": nperf, "Modulos": ",".join(mods_s), "Telefone": nt}
-                            df_usuarios = pd.concat([df_usuarios, pd.DataFrame([nu_dict])], ignore_index=True)
-                            salvar_usuarios(df_usuarios)
-                            st.success("✅ Salvo com sucesso! Usuário criado.")
-
-            with t_lu:
-                st.dataframe(df_usuarios[['Nome', 'Usuario', 'Email', 'Telefone', 'Perfil']], use_container_width=True)
-
-        elif menu == "📥 Importar Nova Base":
-            st.subheader("📥 Importar Nova Base (.xlsx)")
-            up_f = st.file_uploader("Arquivo", type=["xlsx"])
-            if up_f and st.button("Substituir Base"):
-                df_up = pd.read_excel(up_f)
-                salvar_dados(df_up)
-                st.success("✅ Salvo com sucesso! Nova base importada para o Supabase.")
-                st.rerun()
+if __name__ == "__main__":
+    main()
