@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — versão com armazenamento local robusto e sem conflitos de schema.
+"""Painel de Gestão & DP — com edição e exclusão de usuários na aba Lista.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -762,7 +762,8 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
     if not exigir_admin():
         return
     st.subheader("Gestão de usuários")
-    aba_novo, aba_lista = st.tabs(["Novo usuário", "Lista"])
+    aba_novo, aba_lista = st.tabs(["Novo usuário", "Lista / Editar"])
+    
     with aba_novo:
         with st.form("novo_usuario", clear_on_submit=True):
             usuario = st.text_input("Login", help="Será convertido para letras minúsculas.").strip().lower()
@@ -773,14 +774,48 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
                 elif (usuarios["usuario"] == usuario).any():
                     st.error("Já existe um usuário com este login.")
                 else:
-                    novo = {
-                        "usuario": usuario, "senha": senha,
-                    }
+                    novo = {"usuario": usuario, "senha": senha}
                     if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
                         st.success("Usuário criado com sucesso!")
                         st.rerun()
+                        
     with aba_lista:
-        st.dataframe(tabela_exibicao(usuarios, ["usuario"]), use_container_width=True, hide_index=True)
+        if usuarios.empty:
+            st.info("Nenhum usuário cadastrado.")
+            return
+            
+        selecionado = st.selectbox("Selecione o usuário para editar/excluir", usuarios["usuario"].tolist())
+        if selecionado:
+            indice = usuarios.index[usuarios["usuario"] == selecionado][0]
+            reg = usuarios.loc[indice]
+            
+            with st.form("form_edicao_usuario"):
+                st.markdown(f"**Editando usuário:** `{selecionado}`")
+                nova_senha = st.text_input("Nova senha (deixe em branco para não alterar)", type="password")
+                
+                c1, c2 = st.columns(2)
+                salvar_edicao = c1.form_submit_button("Salvar alterações")
+                excluir = c2.form_submit_button("Excluir usuário")
+                
+                if salvar_edicao:
+                    if nova_senha.strip():
+                        usuarios.loc[indice, "senha"] = nova_senha.strip()
+                        salvar_entidade("usuarios", usuarios)
+                        st.success("Senha atualizada com sucesso!")
+                        st.rerun()
+                    else:
+                        st.warning("Nenhuma alteração realizada (senha em branco).")
+                        
+                if excluir:
+                    if len(usuarios) <= 1:
+                        st.error("Você não pode excluir o único usuário restante do sistema.")
+                    elif selecionado == st.session_state.get("usuario"):
+                        st.error("Você não pode excluir seu próprio usuário logado no momento.")
+                    else:
+                        usuarios_atualizado = usuarios.drop(indice).reset_index(drop=True)
+                        salvar_entidade("usuarios", usuarios_atualizado)
+                        st.success("Usuário excluído com sucesso!")
+                        st.rerun()
 
 
 def tela_importacao(colaboradores: pd.DataFrame) -> None:
