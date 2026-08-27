@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — versão final com senha simples compatível com o Supabase.
+"""Painel de Gestão & DP — usuários locais e demais dados no Supabase.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -96,10 +96,7 @@ ALIAS_COLUNAS = {
         "decisao_experiencia": "decisao_experiencia", "decisão_experiência": "decisao_experiencia",
         "data_desligamento": "data_desligamento",
     },
-    "usuarios": {
-        "usuario": "usuario", "usuário": "usuario", "login": "usuario",
-        "senha": "senha", "password": "senha",
-    },
+    "usuarios": {"usuario": "usuario", "senha": "senha"},
     "faltas": {
         "registro_id": "registro_id", "matricula": "matricula", "matrícula": "matricula",
         "funcionario": "funcionario", "funcionário": "funcionario", "setor": "setor", "data": "data",
@@ -185,7 +182,6 @@ def renomear_colunas(df: pd.DataFrame, entidade: str) -> pd.DataFrame:
 
 def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, bool]:
     df = renomear_colunas(df, entidade)
-
     for coluna in COLUNAS[entidade]:
         if coluna not in df.columns:
             if coluna in {"dias"}:
@@ -202,12 +198,10 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
         df["status"] = df["status"].replace({"Ferias": "Férias", "ferias": "Férias"}).replace("", "Ativo")
         for coluna in ("admissao", "nascimento", "ultimas_ferias", "data_retorno_ferias", "data_desligamento"):
             df[coluna] = df[coluna].map(data_iso)
-
     elif entidade == "usuarios":
         for coluna in ("usuario", "senha"):
             df[coluna] = df[coluna].map(limpar_texto)
         df["usuario"] = df["usuario"].str.lower()
-
     elif entidade in {"faltas", "epis", "historico"}:
         id_coluna = CHAVES_PRIMARIAS[entidade]
         df[id_coluna] = df[id_coluna].map(limpar_texto)
@@ -266,6 +260,10 @@ def converter_para_registros(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
+    if entidade == "usuarios":
+        df, _ = normalizar_entidade(ler_excel(entidade), entidade)
+        return df, "Local"
+
     cliente = obter_supabase()
     if cliente is not None:
         try:
@@ -283,15 +281,16 @@ def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
 
 def salvar_entidade(entidade: str, df: pd.DataFrame, mostrar_feedback: bool = True) -> bool:
     df_normalizado, _ = normalizar_entidade(df, entidade)
-    cliente = obter_supabase()
-    if cliente is not None:
-        try:
-            registros = converter_para_registros(df_normalizado)
-            if registros:
-                cliente.table(entidade).upsert(registros, on_conflict=CHAVES_PRIMARIAS[entidade]).execute()
-        except Exception as erro:
-            st.error(f"Erro ao salvar no Supabase: {erro}")
-            return False
+    if entidade != "usuarios":
+        cliente = obter_supabase()
+        if cliente is not None:
+            try:
+                registros = converter_para_registros(df_normalizado)
+                if registros:
+                    cliente.table(entidade).upsert(registros, on_conflict=CHAVES_PRIMARIAS[entidade]).execute()
+            except Exception as erro:
+                st.error(f"Erro ao salvar no Supabase: {erro}")
+                return False
 
     try:
         salvar_excel_atomico(df_normalizado, entidade)
@@ -325,10 +324,7 @@ def iniciar_estado_sessao() -> None:
 def provisionar_admin_automatico(usuarios: pd.DataFrame) -> pd.DataFrame:
     if not usuarios.empty:
         return usuarios
-    novo = pd.DataFrame([{
-        "usuario": "admin",
-        "senha": "030711",
-    }])
+    novo = pd.DataFrame([{"usuario": "admin", "senha": "030711"}])
     salvar_entidade("usuarios", novo, False)
     return novo
 
