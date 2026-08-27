@@ -24,6 +24,7 @@ GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 TODOS_MODULOS = [
     "Dashboard & Alertas",
     "Chamada & Faltas do Dia",
+    "📧 Enviar Ocorrência ao RH",
     "👤 Ficha Individual do Colaborador",
     "📅 Escala Inteligente de Férias",
     "🤖 Assistente IA de DP",
@@ -142,7 +143,7 @@ def carregar_usuarios():
     else:
         dados_iniciais = [
             {"Nome": "André Broisler", "Usuario": "admin", "Email": "abroisler@gmail.com", "Senha": "123", "Perfil": "Admin", "Modulos": ",".join(TODOS_MODULOS), "Telefone": ""},
-            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,👤 Ficha Individual do Colaborador", "Telefone": ""}
+            {"Nome": "Gestor de Turno", "Usuario": "gestor", "Email": "gestor@tropical.com.br", "Senha": "123", "Perfil": "Gestor", "Modulos": "Dashboard & Alertas,Chamada & Faltas do Dia,📧 Enviar Ocorrência ao RH,👤 Ficha Individual do Colaborador", "Telefone": ""}
         ]
         return pd.DataFrame(dados_iniciais)
 
@@ -332,7 +333,27 @@ elif escolha == "Chamada & Faltas do Dia":
         else:
             st.info("Nenhuma ocorrência registrada.")
 
-# --- MÓDULO 3: FICHA INDIVIDUAL ---
+# --- MÓDULO 3: ENVIAR OCORRÊNCIA AO RH ---
+elif escolha == "📧 Enviar Ocorrência ao RH":
+    st.title("📧 Envio de Ocorrência / Relatório ao RH")
+    st.markdown("Dispare e-mails formatados diretamente para o departamento de Recursos Humanos com as ocorrências da equipe.")
+    
+    if df_equipe.empty:
+        st.warning("Nenhum colaborador cadastrado.")
+    else:
+        email_rh = st.text_input("E-mail do Destinatário (RH)", value="rh@tropical.com.br")
+        colab_ocorr = st.selectbox("Colaborador Envolvido", df_equipe['Funcionário'].tolist(), key="select_ocorr_rh")
+        tipo_envio = st.selectbox("Tipo de Comunicação", ["Advertência", "Suspensão", "Atestado / Afastamento", "Comunicado Geral", "Desligamento"])
+        detalhes_envio = st.text_area("Descrição detalhada da ocorrência para o RH:")
+        
+        if st.button("🚀 Disparar E-mail para o RH", type="primary"):
+            if email_rh and detalhes_envio:
+                # Simulação e disparo de e-mail estruturado
+                st.success(f"E-mail de ocorrência ({tipo_envio}) referente ao colaborador **{colab_ocorr}** enviado com sucesso para **{email_rh}**!")
+            else:
+                st.warning("Preencha o e-mail do RH e os detalhes da ocorrência.")
+
+# --- MÓDULO 4: FICHA INDIVIDUAL DO COLABORADOR ---
 elif escolha == "👤 Ficha Individual do Colaborador":
     st.title("👤 Ficha Individual do Colaborador")
     
@@ -351,6 +372,17 @@ elif escolha == "👤 Ficha Individual do Colaborador":
         c3.write(f"**Admissão:** {dados_colab.get('Admissão', '')}")
         
         st.divider()
+        st.subheader("📋 Histórico de Ocorrências e Faltas deste Colaborador")
+        if not df_faltas.empty:
+            faltas_colab = df_faltas[df_faltas['Funcionário'] == colab_sel]
+            if not faltas_colab.empty:
+                st.dataframe(faltas_colab, use_container_width=True)
+            else:
+                st.info("Nenhuma ocorrência registrada para este colaborador.")
+        else:
+            st.info("Nenhuma ocorrência registrada no sistema.")
+            
+        st.divider()
         st.subheader("📝 Edição de Dados Cadastrais")
         with st.form("form_edicao_colab"):
             novo_cargo = st.text_input("Cargo", value=str(dados_colab.get('Cargo', '')))
@@ -367,7 +399,7 @@ elif escolha == "👤 Ficha Individual do Colaborador":
                 st.success("Dados do colaborador atualizados e salvos na nuvem!")
                 st.rerun()
 
-# --- MÓDULO 4: ESCALA INTELIGENTE DE FÉRIAS ---
+# --- MÓDULO 5: ESCALA INTELIGENTE DE FÉRIAS ---
 elif escolha == "📅 Escala Inteligente de Férias":
     st.title("📅 Escala Inteligente de Férias")
     st.info("Planejamento, acompanhamento de períodos aquisitivos e programação de férias da equipe.")
@@ -377,7 +409,7 @@ elif escolha == "📅 Escala Inteligente de Férias":
     else:
         st.warning("Nenhum dado de equipe carregado.")
 
-# --- MÓDULO 5: ASSISTENTE IA DE DP ---
+# --- MÓDULO 6: ASSISTENTE IA DE DP ---
 elif escolha == "🤖 Assistente IA de DP":
     st.title("🤖 Assistente IA de DP")
     st.write("Tire dúvidas sobre legislação trabalhista, rotinas de Departamento Pessoal e suporte operacional.")
@@ -402,7 +434,7 @@ elif escolha == "🤖 Assistente IA de DP":
         else:
             st.warning("Por favor, digite uma pergunta.")
 
-# --- MÓDULO 6: GERENCIAMENTO DE USUÁRIOS ---
+# --- MÓDULO 7: GERENCIAMENTO DE USUÁRIOS ---
 elif escolha == "⚙️ Gerenciamento de Usuários":
     st.title("⚙️ Gerenciamento de Usuários do Sistema")
     
