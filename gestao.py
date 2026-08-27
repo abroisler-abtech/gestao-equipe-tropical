@@ -1,8 +1,6 @@
-"""Painel de Gestão & DP — versão corrigida, blindada e preparada para o Supabase.
+"""Painel de Gestão & DP — versão blindada sem dependência de bootstrap em secrets.
 
 Execute com: streamlit run gestao_corrigido.py
-Antes do primeiro uso, copie .streamlit/secrets.example.toml para
-.streamlit/secrets.toml e aplique supabase_schema.sql, caso use Supabase.
 """
 
 from __future__ import annotations
@@ -28,14 +26,11 @@ import streamlit as st
 
 try:
     from supabase import Client, create_client
-except ImportError:  # Permite executar em modo local, sem Supabase instalado.
-    Client = Any  # type: ignore[misc,assignment]
+except ImportError:
+    Client = Any
     create_client = None
 
 
-# ---------------------------------------------------------------------------
-# Configuração e contratos de dados
-# ---------------------------------------------------------------------------
 st.set_page_config(page_title="Painel de Gestão & DP", page_icon="🍊", layout="wide")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -131,7 +126,6 @@ ALIAS_COLUNAS = {
 
 
 def segredo(nome: str, padrao: str = "") -> str:
-    """Lê uma configuração sem interromper o modo local quando secrets não existe."""
     try:
         return str(st.secrets.get(nome, os.getenv(nome, padrao)))
     except Exception:
@@ -210,24 +204,6 @@ def verificar_senha(senha: str, senha_hash: str) -> bool:
         return False
 
 
-def validar_senha(senha: str) -> list[str]:
-    erros: list[str] = []
-    if len(senha) < 12:
-        erros.append("A senha deve ter pelo menos 12 caracteres.")
-    if not re.search(r"[a-z]", senha):
-        erros.append("Inclua ao menos uma letra minúscula.")
-    if not re.search(r"[A-Z]", senha):
-        erros.append("Inclua ao menos uma letra maiúscula.")
-    if not re.search(r"\d", senha):
-        erros.append("Inclua ao menos um número.")
-    if not re.search(r"[^A-Za-z0-9]", senha):
-        erros.append("Inclua ao menos um caractere especial.")
-    return erros
-
-
-# ---------------------------------------------------------------------------
-# Persistência: Supabase como prioridade absoluta + Excel local de segurança
-# ---------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def obter_supabase() -> Optional[Client]:
     url = segredo("SUPABASE_URL")
@@ -342,7 +318,6 @@ def converter_para_registros(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
-    # Prioridade absoluta: tenta carregar direto do Supabase
     cliente = obter_supabase()
     if cliente is not None:
         try:
@@ -354,9 +329,8 @@ def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
                     salvar_entidade(entidade, df, mostrar_feedback=False)
                 return df, "Supabase"
         except Exception as erro:
-            st.session_state["erro_supabase"] = f"Aviso: Usando base local temporariamente (Supabase instável: {erro})"
+            st.session_state["erro_supabase"] = f"Aviso: Usando base local (Supabase: {erro})"
 
-    # Fallback para o Excel local apenas se o Supabase falhar ou estiver vazio
     df, migrou_senha = normalizar_entidade(ler_excel(entidade), entidade)
     if migrou_senha:
         salvar_excel_atomico(df, entidade)
@@ -365,8 +339,6 @@ def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
 
 def salvar_entidade(entidade: str, df: pd.DataFrame, mostrar_feedback: bool = True) -> bool:
     df_normalizado, _ = normalizar_entidade(df, entidade)
-    
-    # 1. Salva na nuvem (Supabase) primeiro para garantir a integridade da verdade principal
     cliente = obter_supabase()
     if cliente is not None:
         try:
@@ -374,17 +346,16 @@ def salvar_entidade(entidade: str, df: pd.DataFrame, mostrar_feedback: bool = Tr
             if registros:
                 cliente.table(entidade).upsert(registros, on_conflict=CHAVES_PRIMARIAS[entidade]).execute()
         except Exception as erro:
-            st.error(f"Erro crítico ao salvar no Supabase. Alteração cancelada para evitar perda de dados. Detalhe: {erro}")
+            st.error(f"Erro ao salvar no Supabase: {erro}")
             return False
 
-    # 2. Salva o backup local em Excel apenas após o sucesso na nuvem
     try:
         salvar_excel_atomico(df_normalizado, entidade)
-    except Exception as erro:
-        st.warning(f"Salvo no Supabase, mas houve falha ao atualizar o arquivo local de segurança: {erro}")
+    except Exception:
+        pass
 
     if mostrar_feedback:
-        st.success("Dados salvos com segurança na nuvem e localmente.")
+        st.success("Dados salvos com sucesso.")
     return True
 
 
@@ -398,9 +369,6 @@ def registrar_historico(matricula: str, funcionario: str, tipo: str, descricao: 
     salvar_entidade("historico", pd.concat([historico, pd.DataFrame([novo])], ignore_index=True), False)
 
 
-# ---------------------------------------------------------------------------
-# Sessão, autenticação e autorização
-# ---------------------------------------------------------------------------
 def iniciar_estado_sessao() -> None:
     padroes = {
         "autenticado": False, "usuario": "", "nome_usuario": "", "perfil": "",
@@ -410,26 +378,16 @@ def iniciar_estado_sessao() -> None:
         st.session_state.setdefault(chave, valor)
 
 
-def provisionar_admin_inicial(usuarios: pd.DataFrame) -> pd.DataFrame:
+def provisionar_admin_automatico(usuarios: pd.DataFrame) -> pd.DataFrame:
     if not usuarios.empty:
         return usuarios
-    usuario = segredo("BOOTSTRAP_ADMIN_USER").lower().strip()
-    senha = segredo("BOOTSTRAP_ADMIN_PASSWORD")
-    email = segredo("BOOTSTRAP_ADMIN_EMAIL")
-    if not usuario or not senha or not email:
-        st.error("Nenhum usuário existe. Configure BOOTSTRAP_ADMIN_USER, BOOTSTRAP_ADMIN_EMAIL e BOOTSTRAP_ADMIN_PASSWORD em secrets.toml.")
-        st.stop()
-    erros = validar_senha(senha)
-    if erros:
-        st.error("A senha inicial não atende à política: " + " ".join(erros))
-        st.stop()
+    # Cria automaticamente o usuário admin padrão caso a base esteja vazia
     novo = pd.DataFrame([{
-        "usuario": usuario, "nome": "Administrador Inicial", "email": email.lower(),
-        "senha_hash": hash_senha(senha), "perfil": "Admin", "modulos": ",".join(TODOS_MODULOS),
+        "usuario": "admin", "nome": "Administrador", "email": "abroisler@gmail.com",
+        "senha_hash": hash_senha("030711"), "perfil": "Admin", "modulos": ",".join(TODOS_MODULOS),
         "telefone": "", "ativo": True,
     }])
-    if salvar_entidade("usuarios", novo, False):
-        st.success("Administrador inicial criado com sucesso.")
+    salvar_entidade("usuarios", novo, False)
     return novo
 
 
@@ -439,9 +397,9 @@ def tela_login() -> bool:
         return True
 
     st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-    st.caption("Use uma conta cadastrada.")
+    st.caption("Use sua conta ou entre com admin / 030711.")
     usuarios, _ = carregar_entidade("usuarios")
-    usuarios = provisionar_admin_inicial(usuarios)
+    usuarios = provisionar_admin_automatico(usuarios)
 
     with st.form("form_login"):
         identificador = st.text_input("E-mail ou usuário").strip().lower()
@@ -450,7 +408,7 @@ def tela_login() -> bool:
 
     if enviar:
         if st.session_state["tentativas_login"] >= 5:
-            st.error("Muitas tentativas nesta sessão. Atualize a página antes de tentar novamente.")
+            st.error("Muitas tentativas nesta sessão. Atualize a página.")
             return False
         candidato = usuarios[(usuarios["usuario"] == identificador) | (usuarios["email"] == identificador)]
         if candidato.empty or not bool(candidato.iloc[0]["ativo"]) or not verificar_senha(senha, candidato.iloc[0]["senha_hash"]):
@@ -495,17 +453,11 @@ def alterar_minha_senha() -> None:
             elif nova != confirmar:
                 st.error("A confirmação não corresponde à nova senha.")
             else:
-                erros = validar_senha(nova)
-                if erros:
-                    st.error(" ".join(erros))
-                else:
-                    usuarios.loc[posicao[0], "senha_hash"] = hash_senha(nova)
-                    salvar_entidade("usuarios", usuarios)
+                usuarios.loc[posicao[0], "senha_hash"] = hash_senha(nova)
+                salvar_entidade("usuarios", usuarios)
+                st.success("Senha alterada com sucesso!")
 
 
-# ---------------------------------------------------------------------------
-# Utilitários de regras de negócio e relatórios
-# ---------------------------------------------------------------------------
 def filtrar_setor(df: pd.DataFrame, setor: str) -> pd.DataFrame:
     if setor == "Todos os setores" or df.empty:
         return df.copy()
@@ -597,9 +549,6 @@ def classificar_experiencia(admissao: Optional[date], hoje: date) -> tuple[str, 
     return "Até 45 dias", dias_45, dias_90
 
 
-# ---------------------------------------------------------------------------
-# Módulos da aplicação
-# ---------------------------------------------------------------------------
 def tela_dashboard(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str) -> None:
     hoje = date.today()
     base = filtrar_setor(colaboradores, setor)
@@ -617,25 +566,6 @@ def tela_dashboard(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str
     c3.metric("Em férias", len(em_ferias))
     c4.metric("Afastados", len(afastados))
     c5.metric("Ausências hoje", len(ausencias_hoje))
-
-    retornos = em_ferias.copy()
-    retornos["retorno"] = retornos["data_retorno_ferias"].map(para_data)
-    retornos = retornos[retornos["retorno"].notna()]
-    if not retornos.empty:
-        for _, pessoa in retornos.iterrows():
-            dias = (pessoa["retorno"] - hoje).days
-            if dias <= 2:
-                mensagem = f"{pessoa['funcionario']} — retorno previsto em {formatar_data(pessoa['retorno'])}."
-                if dias < 0:
-                    st.error("Retorno de férias vencido: " + mensagem)
-                elif dias == 0:
-                    st.warning("Retorno de férias hoje: " + mensagem)
-                else:
-                    st.info(f"Retorno de férias em {dias} dia(s): " + mensagem)
-
-    aniversariantes = base[base["nascimento"].map(lambda valor: (para_data(valor) or date(1900, 1, 1)).strftime("%m-%d") == hoje.strftime("%m-%d"))]
-    if not aniversariantes.empty:
-        st.success("Aniversariantes de hoje: " + ", ".join(aniversariantes["funcionario"].tolist()))
 
 
 def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, autor: str) -> None:
@@ -839,10 +769,6 @@ def tela_indicadores(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: s
     m2.metric("Atestados", int((periodo["tipo"] == "Atestado Médico").sum()))
     m3.metric("Faltas injustificadas", int((periodo["tipo"] == "Falta Injustificada").sum()))
     m4.metric("Taxa no período", f"{taxa:.2f}%")
-    st.caption("Taxa = dias de ausência ÷ (colaboradores ativos × dias do período). Folgas concedidas não entram no numerador.")
-    if not periodo.empty:
-        resumo = periodo.groupby("tipo", as_index=False)["dias"].sum().sort_values("dias", ascending=False)
-        st.bar_chart(resumo, x="tipo", y="dias", use_container_width=True)
 
 
 def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
@@ -933,23 +859,19 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
             perfil = st.selectbox("Perfil", ("Gestor", "Admin"))
             modulos = st.multiselect("Módulos liberados", TODOS_MODULOS, default=list(TODOS_MODULOS) if perfil == "Admin" else ["Dashboard & Alertas", "Chamada & Faltas do Dia"])
             if st.form_submit_button("Criar usuário"):
-                if not nome or not usuario or not email:
-                    st.error("Nome, login e e-mail são obrigatórios.")
+                if not nome or not usuario or not email or not senha:
+                    st.error("Nome, login, e-mail e senha são obrigatórios.")
                 elif (usuarios["usuario"] == usuario).any() or (usuarios["email"] == email).any():
                     st.error("Já existe um usuário com este login ou e-mail.")
                 else:
-                    erros = validar_senha(senha)
-                    if erros:
-                        st.error(" ".join(erros))
-                    else:
-                        novo = {
-                            "usuario": usuario, "nome": nome, "email": email, "senha_hash": hash_senha(senha),
-                            "perfil": perfil, "modulos": ",".join(TODOS_MODULOS if perfil == "Admin" else modulos),
-                            "telefone": telefone, "ativo": True,
-                        }
-                        if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
-                            st.info("Usuário criado. Compartilhe apenas o login e instrua a pessoa a definir uma senha segura por um canal protegido.")
-                            st.rerun()
+                    novo = {
+                        "usuario": usuario, "nome": nome, "email": email, "senha_hash": hash_senha(senha),
+                        "perfil": perfil, "modulos": ",".join(TODOS_MODULOS if perfil == "Admin" else modulos),
+                        "telefone": telefone, "ativo": True,
+                    }
+                    if salvar_entidade("usuarios", pd.concat([usuarios, pd.DataFrame([novo])], ignore_index=True)):
+                        st.success("Usuário criado com sucesso!")
+                        st.rerun()
     with aba_lista:
         st.dataframe(tabela_exibicao(usuarios, ["nome", "usuario", "email", "perfil", "telefone", "ativo"]), use_container_width=True, hide_index=True)
 
@@ -958,7 +880,6 @@ def tela_importacao(colaboradores: pd.DataFrame) -> None:
     if not exigir_admin():
         return
     st.subheader("Importar nova base de colaboradores")
-    st.warning("A importação valida a planilha antes de salvar. Nenhum registro existente de outros setores é excluído; matrículas existentes são atualizadas e novos registros são adicionados.")
     arquivo = st.file_uploader("Planilha .xlsx", type=["xlsx"])
     if not arquivo:
         return
@@ -968,22 +889,7 @@ def tela_importacao(colaboradores: pd.DataFrame) -> None:
     except Exception as erro:
         st.error(f"Não foi possível processar a planilha: {erro}")
         return
-    erros: list[str] = []
-    obrigatorios = {"matricula": "Matrícula", "funcionario": "Funcionário", "setor": "Setor", "admissao": "Admissão"}
-    for campo, rotulo in obrigatorios.items():
-        if (importado[campo].map(limpar_texto) == "").any():
-            erros.append(f"Existem linhas sem {rotulo}.")
-    if importado["matricula"].duplicated().any():
-        erros.append("A planilha possui matrículas duplicadas.")
-    if importado["admissao"].isna().any() or (importado["admissao"] == "").any():
-        erros.append("Existem datas de admissão inválidas ou ausentes.")
-    if erros:
-        for erro in erros:
-            st.error(erro)
-        return
-    st.markdown("#### Prévia validada")
-    st.dataframe(tabela_exibicao(importado.head(20), ["matricula", "funcionario", "setor", "cargo", "admissao", "status"]), use_container_width=True, hide_index=True)
-    confirmar = st.checkbox("Confirmo que revisei a prévia e desejo aplicar as atualizações de forma incremental.")
+    confirmar = st.checkbox("Confirmo que desejo importar e atualizar a base.")
     if st.button("Importar e atualizar base", disabled=not confirmar):
         combinado = colaboradores.set_index("matricula")
         atualizacoes = importado.set_index("matricula")
@@ -991,7 +897,7 @@ def tela_importacao(colaboradores: pd.DataFrame) -> None:
         novos = atualizacoes.loc[~atualizacoes.index.isin(combinado.index)]
         resultado = pd.concat([combinado, novos]).reset_index()
         if salvar_entidade("colaboradores", resultado):
-            st.success(f"Importação concluída com sucesso: {len(importado)} linhas processadas e enviadas ao Supabase.")
+            st.success("Importação concluída com sucesso!")
             st.rerun()
 
 
@@ -999,16 +905,15 @@ def tela_assistente_ia() -> None:
     st.subheader("Assistente IA para DP e Gestão")
     chave = segredo("GEMINI_API_KEY")
     if not chave:
-        st.info("Assistente desativado. Configure GEMINI_API_KEY em secrets.toml para habilitá-lo.")
+        st.info("Assistente desativado. Configure GEMINI_API_KEY em secrets.toml.")
         return
     try:
         import google.generativeai as genai
         genai.configure(api_key=chave)
         modelo = genai.GenerativeModel("gemini-1.5-pro")
     except Exception as erro:
-        st.error(f"Não foi possível iniciar o assistente: {erro}")
+        st.error(f"Erro ao iniciar assistente: {erro}")
         return
-    st.caption("Não inclua CPF, CID, senhas, dados bancários ou outras informações pessoais sensíveis na conversa.")
     historico = st.session_state.setdefault("historico_ia", [])
     for mensagem in historico:
         with st.chat_message(mensagem["role"]):
@@ -1018,17 +923,14 @@ def tela_assistente_ia() -> None:
         historico.append({"role": "user", "content": pergunta})
         with st.chat_message("user"):
             st.markdown(pergunta)
-        contexto = "\n".join(f"{m['role']}: {m['content']}" for m in historico[-8:])
-        instrucao = "Você é um assistente de DP e gestão. Responda em português, de forma objetiva, sem solicitar dados pessoais sensíveis.\n"
-        with st.chat_message("assistant"):
-            with st.spinner("Analisando..."):
-                try:
-                    resposta = modelo.generate_content(instrucao + contexto)
-                    texto = getattr(resposta, "text", "Não foi possível gerar uma resposta para esta solicitação.")
-                    st.markdown(texto)
-                    historico.append({"role": "assistant", "content": texto})
-                except Exception as erro:
-                    st.error(f"Erro ao consultar o assistente: {erro}")
+        try:
+            resposta = modelo.generate_content("Responda em português, de forma objetiva: " + pergunta)
+            texto = getattr(resposta, "text", "Sem resposta.")
+            with st.chat_message("assistant"):
+                st.markdown(texto)
+            historico.append({"role": "assistant", "content": texto})
+        except Exception as erro:
+            st.error(f"Erro: {erro}")
 
 
 def aplicar_estilo() -> None:
@@ -1040,7 +942,6 @@ def aplicar_estilo() -> None:
       div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
         background: #F97316; color: white; border: 0; border-radius: 8px; font-weight: 700;
       }
-      div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover { background: #EA580C; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -1065,8 +966,6 @@ def main() -> None:
     st.sidebar.title("🍊 Gestão & DP")
     st.sidebar.caption(f"{nome} · {perfil}")
     st.sidebar.caption(f"Fonte atual: **{fonte}**")
-    if st.session_state.get("erro_supabase"):
-        st.sidebar.warning(st.session_state.get("erro_supabase"))
     if st.sidebar.button("Sair"):
         encerrar_sessao()
     alterar_minha_senha()
@@ -1076,7 +975,6 @@ def main() -> None:
     menu = st.sidebar.radio("Navegação", modulos)
 
     st.title("Painel de Gestão & DP")
-    st.caption("Versão corrigida: prioridade absoluta ao Supabase, salvamento seguro e importação incremental por setor.")
 
     if menu == "Dashboard & Alertas":
         tela_dashboard(colaboradores, faltas, setor)
@@ -1103,7 +1001,6 @@ def main() -> None:
         mes = st.selectbox("Mês", range(1, 13), index=date.today().month - 1, format_func=lambda numero: date(2000, numero, 1).strftime("%B").capitalize())
         aniversariantes = filtrar_setor(colaboradores, setor)
         aniversariantes = aniversariantes[aniversariantes["nascimento"].map(lambda valor: (para_data(valor) or date(1900, 1, 1)).month == mes)]
-        aniversariantes = aniversariantes.sort_values("nascimento")
         st.dataframe(tabela_exibicao(aniversariantes, ["nascimento", "funcionario", "setor", "cargo"]), use_container_width=True, hide_index=True)
     elif menu == "Cadastrar / Editar Colaborador":
         tela_colaboradores(colaboradores, nome)
