@@ -140,7 +140,7 @@ Olá, *{nome_usuario}*! Seu acesso ao painel da Tropical Distribuidora foi liber
 👤 *Usuário/E-mail:* {login_acesso}
 🔑 *Senha:* {senha_acesso}
 
-_Painel de Gestão & DP Versão 2.3.5 - Desenvolvido por André Broisler_"""
+_Painel de Gestão & DP Versão 2.3.6 - Desenvolvido por André Broisler_"""
     return f"https://wa.me/{num_limpo}?text={urllib.parse.quote(texto_msg)}"
 
 def enviar_email_acesso(destino_email, nome_usuario, login_acesso, senha_acesso):
@@ -226,7 +226,6 @@ def carregar_dados():
         except Exception:
             pass
 
-    # Fallback para Excel local se Supabase falhar
     if os.path.exists(ARQUIVO_DADOS):
         df = pd.read_excel(ARQUIVO_DADOS)
         df.columns = df.columns.str.strip()
@@ -267,15 +266,12 @@ def salvar_dados(df_salvar):
     cols_salvar = [c for c in df_salvar.columns if c not in ['dt_adm', 'dt_nasc', 'dt_nasc_dt', 'dt_ult_ferias', 'exp_45', 'exp_90', 'dias_para_45', 'dias_para_90']]
     df_limpo = df_salvar[cols_salvar].copy()
     
-    # Salva localmente em Excel
     df_limpo.to_excel(ARQUIVO_DADOS, index=False)
     
-    # Salva permanentemente no Supabase (Nuvem)
     if supabase_disponivel:
         try:
             supabase.table("colaboradores").delete().neq("Matricula", "99999999").execute()
             registros = df_limpo.astype(str).to_dict(orient="records")
-            # Substitui strings 'nan' ou 'None' por None real
             for reg in registros:
                 for k, v in reg.items():
                     if v in ['nan', 'None', 'NaT', '']:
@@ -492,7 +488,7 @@ def verificar_senha():
 
     if not st.session_state["autenticado"]:
         st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.5**")
+        st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.6**")
         st.info("Informe seu E-mail / Nome de usuário e senha para entrar.")
         
         df_u = carregar_usuarios()
@@ -552,14 +548,14 @@ if verificar_senha():
     c_s1, c_s2 = st.sidebar.columns(2)
     with c_s1:
         if st.button("🔑 Senha"):
-            modal_alterar_senha = lambda: None # placeholder
+            pass
     with c_s2:
         if st.button("🚪 Sair"):
             st.session_state["autenticado"] = False
             st.rerun()
 
     st.title("🍊 Painel de Gestão & DP — Tropical")
-    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.5 (Persistência Supabase Conectada & Datas Livres)**")
+    st.caption("💻 **Desenvolvido por André Broisler — Versão 2.3.6 (Campos de Data Livres & Supabase)**")
     st.divider()
 
     if not df.empty:
@@ -638,24 +634,8 @@ if verificar_senha():
                 df_ausencias_hoje = pd.DataFrame()
                 st.info("📌 **Aviso:** A chamada de hoje ainda não foi iniciada.")
 
-            pendencias_ant = df_faltas_filtrado[
-                (df_faltas_filtrado['dt_falta'] < hoje) & 
-                (df_faltas_filtrado['Tipo'].astype(str).str.contains('A Confirmar', case=False, na=False))
-            ] if not df_faltas_filtrado.empty else pd.DataFrame()
-
-            if not pendencias_ant.empty:
-                st.error(f"🚨 **ALERTA DE DP:** Existem {len(pendencias_ant)} ausência(s) de dias anteriores pendentes de classificação!")
-
-            vagas_abertas = df_filtrado[df_filtrado['Status'].astype(str).str.contains('Desligado', case=False, na=False)]
-            qtd_vagas = len(vagas_abertas)
-            if qtd_vagas > 0:
-                st.error(f"🚨 **ALERTA DE REPOSIÇÃO DE QUADRO:** Existem exatamente **{qtd_vagas}** vaga(s) aberta(s) por desligamento/término de contrato!")
-
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Quadro", len(df_filtrado))
-            if c1.button("🔍 Ver Quadro", key="btn_quadro"):
-                exibir_modal_detalhes = lambda t, d: None # placeholder
-            
             c2.metric("Ativos", len(df_ativos))
             c3.metric("Em Férias", len(df_ferias_st))
             c4.metric("Atest./Afast./INSS", len(df_afastados))
@@ -700,7 +680,9 @@ if verificar_senha():
                 if colabs_operacionais.empty:
                     st.warning("Nenhum colaborador operacional ativo.")
                 else:
-                    data_chamada = st.date_input("Data da Chamada:", value=hoje, format="DD/MM/YYYY", key="chamada_diaria_date_v5")
+                    data_chamada_txt = st.text_input("Data da Chamada (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'), key="chamada_txt_v6")
+                    data_chamada = pd.to_datetime(data_chamada_txt, dayfirst=True, errors='coerce').date() or hoje
+                    
                     faltas_existentes = df_faltas[(df_faltas['dt_falta'] == data_chamada) & (df_faltas['Setor'] == setor_selecionado)] if not df_faltas.empty else pd.DataFrame()
 
                     with st.form("form_chamada_diaria"):
@@ -793,8 +775,7 @@ if verificar_senha():
                     df_epis = pd.concat([df_epis, pd.DataFrame([novo_registro_epi])], ignore_index=True)
                     salvar_epis(df_epis)
                     registrar_historico(dados_colab.get('Matricula', ''), colab_escolhido, "Entrega de EPI", detalhe_completo, nome_usuario)
-                    
-                    st.success(f"✅ Salvo com sucesso! EPI registrado e adicionado ao prontuário de {colab_escolhido}.")
+                    st.success(f"✅ Salvo com sucesso! EPI registrado.")
 
         elif menu == "👤 Ficha Individual do Colaborador":
             st.subheader("👤 Prontuário & Ficha Individual 360º")
@@ -860,7 +841,7 @@ if verificar_senha():
                 st.dataframe(df_niv, use_container_width=True)
 
         elif menu == "Cadastrar / Editar Colaborador":
-            st.subheader("👥 Gestão de Colaboradores (Datas Livres & Supabase Conectado)")
+            st.subheader("👥 Gestão de Colaboradores (Datas Livres & Supabase)")
             t_cad, t_ed = st.tabs(["➕ Novo Colaborador", "✏️ Editar / Desligar"])
             
             with t_cad:
@@ -873,18 +854,21 @@ if verificar_senha():
                     car_c = s2.text_input("Cargo:")
                     d1, d2, d3 = st.columns(3)
                     
-                    adm_txt = d1.date_input("Admissão:", value=hoje, min_value=date(1950, 1, 1), max_value=hoje, format="DD/MM/YYYY", key="novo_adm_v5")
-                    nasc_txt = d2.date_input("Nascimento:", value=date(1985, 1, 1), min_value=date(1930, 1, 1), max_value=hoje, format="DD/MM/YYYY", key="novo_nasc_v5")
+                    adm_txt = d1.text_input("Admissão (DD/MM/AAAA):", value=hoje.strftime('%d/%m/%Y'))
+                    nasc_txt = d2.text_input("Nascimento (DD/MM/AAAA):", value="01/01/1990")
                     st_c = d3.selectbox("Status:", ["Ativo", "Férias", "Afastado", "Desligado"])
                     
                     if st.form_submit_button("Salvar") and nom_c:
+                        dt_adm_p = pd.to_datetime(adm_txt, dayfirst=True, errors='coerce').date() or hoje
+                        dt_nasc_p = pd.to_datetime(nasc_txt, dayfirst=True, errors='coerce').date() or date(1990,1,1)
+                        
                         novo = {
                             "Matricula": str(mat_c), 
                             "Funcionário": str(nom_c), 
                             "Setor": str(set_c), 
                             "Cargo": str(car_c), 
-                            "Admissão": adm_txt.strftime('%d/%m/%Y'), 
-                            "Nascimento": nasc_txt.strftime('%d/%m/%Y'), 
+                            "Admissão": dt_adm_p.strftime('%d/%m/%Y'), 
+                            "Nascimento": dt_nasc_p.strftime('%d/%m/%Y'), 
                             "Status": str(st_c),
                             "Ultimas_Ferias": None
                         }
@@ -896,7 +880,7 @@ if verificar_senha():
 
             with t_ed:
                 colabs_e = sorted(df['Funcionário'].dropna().unique())
-                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v5")
+                sel_e = st.selectbox("Selecione para Alterar:", colabs_e, key="select_colab_edicao_ativa_v6")
                 if sel_e:
                     idx_el = df[df['Funcionário'] == sel_e].index[0]
                     row_e = df.loc[idx_el]
@@ -910,9 +894,8 @@ if verificar_senha():
                         
                         ed1, ed2, ed3 = st.columns(3)
                         val_ad = row_e.get('dt_adm') if pd.notnull(row_e.get('dt_adm')) else hoje
-                        
-                        # Campos de texto livres para datas antigas (Evita travamento do calendário do navegador)
                         default_adm_str = val_ad.strftime('%d/%m/%Y') if hasattr(val_ad, 'strftime') else str(val_ad)
+                        
                         ead_txt = ed1.text_input("Admissão (DD/MM/AAAA):", value=default_adm_str)
                         
                         opts_st = ["Ativo", "Férias", "Afastado", "Desligado"]
@@ -921,7 +904,7 @@ if verificar_senha():
                         
                         val_uf_atual = row_e.get('Ultimas_Ferias')
                         val_uf_str = str(val_uf_atual) if pd.notnull(val_uf_atual) and str(val_uf_atual) != 'nan' else ""
-                        euf_txt = ed3.text_input("Últimas Férias (DD/MM/AAAA):", value=val_uf_str, placeholder="Ex: 15/01/2026")
+                        euf_txt = ed3.text_input("Últimas Férias (DD/MM/AAAA):", value=val_uf_str, placeholder="Ex: 05/08/2026")
                         
                         ddes_txt = ""
                         if est == "Desligado":
@@ -974,7 +957,7 @@ if verificar_senha():
                     cm = st.columns(2)
                     for i_m, mn in enumerate(TODOS_MODULOS):
                         with cm[i_m % 2]:
-                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v5"):
+                            if st.checkbox(mn, value=True if nperf == "Admin" or mn in ["Dashboard & Alertas", "Chamada & Faltas do Dia"] else False, key=f"mu_{i_m}dak_v6"):
                                 mods_s.append(mn)
                     if st.form_submit_button("Criar Usuário") and nn and nl and ns:
                         if nl in df_usuarios['Usuario'].astype(str).str.lower().values:
