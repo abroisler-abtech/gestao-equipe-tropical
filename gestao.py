@@ -74,14 +74,7 @@ CHAVES_PRIMARIAS = {
     "historico": "evento_id",
 }
 
-TIPOS_OCORRENCIA = (
-    "Falta Injustificada", 
-    "Atestado Médico", 
-    "Folga Concedida", 
-    "Advertência Escrita", 
-    "Suspensão", 
-    "Ausência / A Confirmar"
-)
+TIPOS_OCORRENCIA = ("Falta Injustificada", "Atestado Médico", "Folga Concedida", "Ausência / A Confirmar")
 STATUS_COLABORADOR = ("Ativo", "Férias", "Afastado", "Desligado")
 TODOS_MODULOS = (
     "Dashboard & Alertas",
@@ -622,24 +615,38 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
         if not opcoes:
             st.info("Cadastre um colaborador antes de lançar uma ocorrência.")
         else:
-            with st.form("form_ocorrencia", clear_on_submit=True):
-                matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor])
-                tipo = st.selectbox("Tipo de Ocorrência", TIPOS_OCORRENCIA)
-                data_ocorrencia = st.date_input("Data", value=date.today(), key="data_ocorrencia", format="DD/MM/YYYY")
-                dias = st.number_input("Quantidade de dias", min_value=1, max_value=365, value=1)
-                cid = st.text_input("CID (opcional)").strip().upper()
-                motivo = st.text_area("Observação / Descrição", max_chars=500).strip()
-                if st.form_submit_button("Salvar ocorrência"):
-                    pessoa = base[base["matricula"] == matricula].iloc[0]
-                    novo = {
-                        "registro_id": str(uuid.uuid4()), "matricula": matricula, "funcionario": pessoa["funcionario"],
-                        "setor": pessoa["setor"], "data": data_ocorrencia.isoformat(), "tipo": tipo, "dias": int(dias),
-                        "cid": cid, "motivo": motivo, "origem": "Avulso",
-                    }
-                    if salvar_entidade("faltas", pd.concat([faltas, pd.DataFrame([novo])], ignore_index=True)):
-                        registrar_historico(matricula, pessoa["funcionario"], f"Registro: {tipo}", f"{motivo or tipo} em {data_ocorrencia:%d/%m/%Y}.", autor)
-                        st.success(f"'{tipo}' registrada e salva no histórico do colaborador com sucesso!")
-                        st.rerun()
+            matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor], key="av_mat")
+            
+            # Opções base de ocorrência
+            tipo_base = st.selectbox("Tipo de Ocorrência", TIPOS_OCORRENCIA, key="av_tipo_base")
+            
+            # Se for Falta Injustificada, exibe a opção complementar de medida disciplinar
+            tipo_final = tipo_base
+            if tipo_base == "Falta Injustificada":
+                medida_disciplinar = st.selectbox(
+                    "Ação Disciplinar Vinculada",
+                    ("Nenhuma (Apenas Falta)", "Advertência Escrita", "Suspensão"),
+                    key="av_medida"
+                )
+                if medida_disciplinar != "Nenhuma (Apenas Falta)":
+                    tipo_final = medida_disciplinar
+
+            data_ocorrencia = st.date_input("Data", value=date.today(), key="data_ocorrencia", format="DD/MM/YYYY")
+            dias = st.number_input("Quantidade de dias", min_value=1, max_value=365, value=1, key="av_dias")
+            cid = st.text_input("CID (opcional)", key="av_cid").strip().upper()
+            motivo = st.text_area("Observação / Descrição", max_chars=500, key="av_motivo").strip()
+
+            if st.button("Salvar ocorrência avulsa", key="btn_salvar_avulso"):
+                pessoa = base[base["matricula"] == matricula].iloc[0]
+                novo = {
+                    "registro_id": str(uuid.uuid4()), "matricula": matricula, "funcionario": pessoa["funcionario"],
+                    "setor": pessoa["setor"], "data": data_ocorrencia.isoformat(), "tipo": tipo_final, "dias": int(dias),
+                    "cid": cid, "motivo": motivo, "origem": "Avulso",
+                }
+                if salvar_entidade("faltas", pd.concat([faltas, pd.DataFrame([novo])], ignore_index=True)):
+                    registrar_historico(matricula, pessoa["funcionario"], f"Registro: {tipo_final}", f"{motivo or tipo_final} em {data_ocorrencia:%d/%m/%Y}.", autor)
+                    st.success(f"'{tipo_final}' registrada com sucesso e gravada no histórico!")
+                    st.rerun()
 
     with aba_historico:
         historico = filtrar_setor(faltas, setor).sort_values("data", ascending=False)
