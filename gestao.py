@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — Versão Definitiva Corrigida.
+"""Painel de Gestão & DP — Versão Definitiva Consolidada.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -55,7 +55,7 @@ COLUNAS: dict[str, list[str]] = {
     "colaboradores": [
         "matricula", "funcionario", "setor", "cargo", "admissao", "nascimento",
         "status", "ultimas_ferias", "data_retorno_ferias", "decisao_experiencia",
-        "data_desligamento",
+        "data_desligamento", "aprovacao_rh", "fracionamento", "escala_confirmada", "data_pre_agendada",
     ],
     "usuarios": ["usuario", "senha", "perfil"],
     "faltas": [
@@ -103,7 +103,8 @@ ALIAS_COLUNAS = {
         "últimas_férias": "ultimas_ferias", "data_retorno_ferias": "data_retorno_ferias",
         "retorno_ferias": "data_retorno_ferias", "status": "status",
         "decisao_experiencia": "decisao_experiencia", "decisão_experiência": "decisao_experiencia",
-        "data_desligamento": "data_desligamento",
+        "data_desligamento": "data_desligamento", "aprovacao_rh": "aprovacao_rh",
+        "fracionamento": "fracionamento", "escala_confirmada": "escala_confirmada", "data_pre_agendada": "data_pre_agendada",
     },
     "usuarios": {"usuario": "usuario", "senha": "senha", "perfil": "perfil"},
     "faltas": {
@@ -204,16 +205,20 @@ def normalizar_entidade(df: pd.DataFrame, entidade: str) -> tuple[pd.DataFrame, 
                 df[coluna] = "Admin"
             elif coluna in {"tipo_registro"}:
                 df[coluna] = "Entrega"
+            elif coluna in {"escala_confirmada"}:
+                df[coluna] = False
             else:
                 df[coluna] = ""
 
     if entidade == "colaboradores":
-        for coluna in ("matricula", "funcionario", "setor", "cargo", "status", "decisao_experiencia"):
-            df[coluna] = df[coluna].map(limpar_texto)
+        for coluna in ("matricula", "funcionario", "setor", "cargo", "status", "decisao_experiencia", "aprovacao_rh", "fracionamento"):
+            if coluna in df.columns:
+                df[coluna] = df[coluna].map(limpar_texto)
         df["matricula"] = df["matricula"].map(limpar_matricula)
         df["status"] = df["status"].replace({"Ferias": "Férias", "ferias": "Férias"}).replace("", "Ativo")
-        for coluna in ("admissao", "nascimento", "ultimas_ferias", "data_retorno_ferias", "data_desligamento"):
-            df[coluna] = df[coluna].map(data_iso)
+        for coluna in ("admissao", "nascimento", "ultimas_ferias", "data_retorno_ferias", "data_desligamento", "data_pre_agendada"):
+            if coluna in df.columns:
+                df[coluna] = df[coluna].map(data_iso)
     elif entidade == "usuarios":
         for coluna in ("usuario", "senha", "perfil"):
             df[coluna] = df[coluna].map(limpar_texto)
@@ -541,7 +546,7 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
     operacionais = ativos[~ativos["cargo"].str.lower().str.contains(termos_lideranca, na=False)].copy()
 
     with aba_chamada:
-        data_chamada = st.date_input("Data da chamada", value=date.today(), key="data_chamada")
+        data_chamada = st.date_input("Data da chamada", value=date.today(), key="data_chamada", format="DD/MM/YYYY")
         if operacionais.empty:
             st.info("Não há colaboradores operacionais ativos para o filtro atual.")
         else:
@@ -597,7 +602,7 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
             with st.form("form_ocorrencia", clear_on_submit=True):
                 matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor])
                 tipo = st.selectbox("Tipo", TIPOS_OCORRENCIA)
-                data_ocorrencia = st.date_input("Data", value=date.today(), key="data_ocorrencia")
+                data_ocorrencia = st.date_input("Data", value=date.today(), key="data_ocorrencia", format="DD/MM/YYYY")
                 dias = st.number_input("Quantidade de dias", min_value=1, max_value=365, value=1)
                 cid = st.text_input("CID (opcional)").strip().upper()
                 motivo = st.text_area("Observação", max_chars=500).strip()
@@ -634,7 +639,7 @@ def tela_epi(colaboradores: pd.DataFrame, epis: pd.DataFrame, setor: str, autor:
                 c1, c2, c3 = st.columns(3)
                 epi = c1.selectbox("EPI", ("Camiseta", "Bota de segurança", "Luvas", "Óculos", "Protetor auricular", "Outro"))
                 detalhe = c2.text_input("Tamanho/Detalhe", max_chars=100)
-                data_entrega = c3.date_input("Data da entrega", value=date.today())
+                data_entrega = c3.date_input("Data da entrega", value=date.today(), format="DD/MM/YYYY")
                 if st.form_submit_button("Registrar Entrega"):
                     pessoa = base[base["matricula"] == matricula].iloc[0]
                     novo = {
@@ -661,7 +666,7 @@ def tela_epi(colaboradores: pd.DataFrame, epis: pd.DataFrame, setor: str, autor:
                 c1, c2 = st.columns(2)
                 epi = c1.selectbox("EPI Solicitado", ("Camiseta", "Bota de segurança", "Luvas", "Óculos", "Protetor auricular", "Outro"), key="sol_epi")
                 detalhe = c2.text_input("Motivo / Tamanho necessário", max_chars=150, key="sol_det")
-                data_sol = st.date_input("Data da Solicitação", value=date.today(), key="sol_dt")
+                data_sol = st.date_input("Data da Solicitação", value=date.today(), key="sol_dt", format="DD/MM/YYYY")
                 if st.form_submit_button("Gerar Solicitação ao RH"):
                     pessoa = base[base["matricula"] == matricula].iloc[0]
                     novo = {
@@ -763,59 +768,291 @@ def tela_experiencia(colaboradores: pd.DataFrame, setor: str, autor: str) -> Non
                             st.rerun()
 
 
+def gerar_pdf_ferias(titulo, df_escala):
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+    elements = []
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle', parent=styles['Heading1'], fontSize=13, leading=16,
+        textColor=colors.HexColor("#1E3A8A"), spaceAfter=5
+    )
+    sub_style = ParagraphStyle(
+        'SubStyle', parent=styles['Normal'], fontSize=8, leading=11,
+        textColor=colors.HexColor("#334155"), spaceAfter=10
+    )
+
+    hoje_txt = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    elements.append(Paragraph(f"<b>{titulo}</b>", title_style))
+    elements.append(Paragraph(
+        f"<b>Gerado em:</b> {hoje_txt} | <b>Empresa:</b> Tropical Distribuidora<br/>"
+        f"<b>Regras de Negócio:</b> Início aos Domingos | Cota Máx: 2 colabs/mês por setor (Fev-Nov) | Coletivas Livres (Dez-Jan)",
+        sub_style
+    ))
+    elements.append(Spacer(1, 5))
+
+    colunas = list(df_escala.columns)
+    table_data = [[Paragraph(f"<b><font size=7.5>{col}</font></b>", styles['Normal']) for col in colunas]]
+    
+    for _, linha in df_escala.iterrows():
+        row_data = []
+        for item in linha:
+            val_str = str(item) if pd.notnull(item) else ""
+            row_data.append(Paragraph(f"<font size=7>{val_str}</font>", styles['Normal']))
+        table_data.append(row_data)
+
+    t = Table(table_data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#E2E8F0")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#1E293B")),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E1")),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#94A3B8")),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    
+    elements.append(t)
+    doc.build(elements)
+    pdf_out = buffer.getvalue()
+    buffer.close()
+    return pdf_out
+
+
+def converter_df_para_excel(df_exp):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_exp.to_excel(writer, index=False, sheet_name='Escala_Ferias')
+    return output.getvalue()
+
+
+def ajustar_para_domingo(data_val):
+    if isinstance(data_val, str):
+        data_val = pd.to_datetime(data_val, dayfirst=True, errors='coerce').date()
+    if not isinstance(data_val, date) or pd.isnull(data_val):
+        return date.today()
+    dias_para_domingo = (6 - data_val.weekday()) % 7
+    return data_val + timedelta(days=dias_para_domingo)
+
+
 def tela_ferias_escala(colaboradores: pd.DataFrame, autor: str) -> None:
-    st.subheader("Escala Inteligente de Férias & Folga")
-    aba_lancamento, aba_escala = st.tabs(["Lançamento de Férias", "Visão Geral & Vencimentos"])
-    opcoes, mapa = opcoes_colaboradores(colaboradores, apenas_ativos=True)
+    st.subheader("🏖️ Módulo de Pré-Agendamento & Simulação Flexível de Férias")
 
-    with aba_lancamento:
-        with st.form("form_escala_ferias", clear_on_submit=True):
-            matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor]) if opcoes else None
-            c1, c2 = st.columns(2)
-            inicio = c1.date_input("Início das Férias", value=date.today())
-            retorno = c2.date_input("Retorno Previsto", value=date.today() + timedelta(days=30))
-            if st.form_submit_button("Programar e Marcar em Férias"):
-                if not matricula:
-                    st.error("Selecione um colaborador.")
-                elif retorno <= inicio:
-                    st.error("A data de retorno precisa ser posterior à data de início.")
-                else:
-                    indice = colaboradores.index[colaboradores["matricula"] == matricula][0]
-                    colaboradores.loc[indice, "status"] = "Férias"
-                    colaboradores.loc[indice, "ultimas_ferias"] = inicio.isoformat()
-                    colaboradores.loc[indice, "data_retorno_ferias"] = retorno.isoformat()
-                    if salvar_entidade("colaboradores", colaboradores):
-                        registrar_historico(matricula, colaboradores.loc[indice, "funcionario"], "Férias", f"Férias programadas de {inicio:%d/%m/%Y} a {retorno:%d/%m/%Y}.", autor)
-                        st.success("Férias registradas com sucesso!")
-                        st.rerun()
+    hoje = date.today()
+    df_ativos = colaboradores[colaboradores['status'].isin(['Ativo', 'Férias'])].copy()
 
-    with aba_escala:
-        ativos_ferias = colaboradores[colaboradores["status"].isin(["Ativo", "Férias"])].copy()
-        linhas = []
-        for _, p in ativos_ferias.iterrows():
-            adm = para_data(p["admissao"])
-            ult = para_data(p["ultimas_ferias"])
-            vencimento_aquisitivo = (adm + timedelta(days=365)) if adm else None
-            vencimento_concessivo = (adm + timedelta(days=730)) if adm else None
-            
-            linhas.append({
-                "Matrícula": p["matricula"], "Funcionário": p["funcionario"], "Setor": p["setor"], "Cargo": p["cargo"],
-                "Status": p["status"], "Admissão": formatar_data(adm), "Últimas Férias": formatar_data(ult),
-                "Fim Período Aquisitivo": formatar_data(vencimento_aquisitivo), "Limite Concessivo": formatar_data(vencimento_concessivo),
+    if df_ativos.empty:
+        st.info("Não há colaboradores ativos para escalonamento.")
+        return
+
+    for col_req in ['aprovacao_rh', 'fracionamento', 'escala_confirmada', 'data_pre_agendada']:
+        if col_req not in colaboradores.columns:
+            colaboradores[col_req] = 'Pendente' if col_req != 'escala_confirmada' else False
+
+    lista_temp = []
+    regulares_cnt = 0
+    atencao_cnt = 0
+    vencidos_cnt = 0
+
+    for idx, r in df_ativos.iterrows():
+        adm = para_data(r.get('admissao'))
+        ult_ferias = para_data(r.get('ultimas_ferias'))
+        data_base = ult_ferias if ult_ferias else adm
+
+        if data_base:
+            anos = (hoje - data_base).days // 365
+            inicio_aq = data_base + timedelta(days=365 * max(0, anos))
+            fim_aq = inicio_aq + timedelta(days=365)
+            limite_conc = fim_aq + timedelta(days=365)
+            dias_restantes = (limite_conc - hoje).days
+
+            if dias_restantes <= 0:
+                vencidos_cnt += 1
+            elif dias_restantes <= 60:
+                atencao_cnt += 1
+            else:
+                regulares_cnt += 1
+
+            lista_temp.append({
+                'idx': idx, 'colab': r, 'data_base': data_base,
+                'limite_conc': limite_conc, 'dias_restantes': dias_restantes, 'ult_ferias': ult_ferias
             })
-        if linhas:
-            tabela_fer = pd.DataFrame(linhas)
-            st.dataframe(tabela_fer, use_container_width=True, hide_index=True)
-            bloco_exportacao("escala_inteligente_ferias", tabela_fer)
-        else:
-            st.info("Nenhum colaborador para calcular escala.")
+
+    lista_temp = sorted(lista_temp, key=lambda x: x['limite_conc'])
+
+    c_m1, c_m2, c_m3 = st.columns(3)
+    c_m1.metric("🟢 Férias Regulares", regulares_cnt)
+    c_m2.metric("🟡 Atenção (Próximos 60d)", atencao_cnt)
+    c_m3.metric("🚨 Vencidos / Risco Multa", vencidos_cnt)
+
+    st.markdown("---")
+
+    tab_pre, tab_resumo, tab_export = st.tabs([
+        "📅 Pré-Agendamento & Reorganização Flexível", 
+        "📋 Escala Consolidada Auditável", 
+        "📥 Impressão e Exportação"
+    ])
+
+    ocupacao_setor_mes = {}
+    dados_escala = []
+    alterou = False
+
+    with tab_pre:
+        st.markdown("##### 🗓️ Escolha ou simule a data do colaborador. O sistema ajusta automaticamente para o primeiro Domingo e valida a capacidade do setor:")
+
+        for ordem_prio, item in enumerate(lista_temp, start=1):
+            idx = item['idx']
+            r = item['colab']
+            limite_conc = item['limite_conc']
+            ult_ferias = item['ult_ferias']
+            setor = r.get('setor', 'Geral')
+
+            data_sugerida_inicial = max(hoje + timedelta(days=30), limite_conc - timedelta(days=60))
+            data_algoritmo = ajustar_para_domingo(data_sugerida_inicial)
+
+            dt_pre_salva = r.get('data_pre_agendada')
+            if dt_pre_salva and str(dt_pre_salva).strip() != "":
+                data_efetiva = para_data(dt_pre_salva) or data_algoritmo
+            else:
+                data_efetiva = data_algoritmo
+
+            adm_dt = para_data(r.get('admissao'))
+            dt_adm_str = adm_dt.strftime('%d/%m/%Y') if adm_dt else 'N/A'
+            dt_ult_str = ult_ferias.strftime('%d/%m/%Y') if ult_ferias else 'Não Registrada'
+
+            c_info, c_dt, c_status = st.columns([2.2, 1.3, 1.5])
+
+            with c_info:
+                st.markdown(f"👤 **{r['funcionario']}** (Prio #{ordem_prio}) | Setor: **{setor}** | Cargo: {r.get('cargo', 'N/A')}")
+                st.caption(f"Admissão: **{dt_adm_str}** | Últs Férias: **{dt_ult_str}** | Limite Concessivo: **{limite_conc.strftime('%d/%m/%Y')}**")
+
+            with c_dt:
+                nova_dt_input = st.date_input(
+                    "Pré-Agendar para:",
+                    value=data_efetiva,
+                    key=f"pre_dt_{idx}",
+                    format="DD/MM/YYYY"
+                )
+                data_inicio_domingo = ajustar_para_domingo(nova_dt_input)
+                if data_inicio_domingo != data_efetiva:
+                    colaboradores.at[idx, 'data_pre_agendada'] = data_inicio_domingo.isoformat()
+                    alterou = True
+
+            chave_mes = (setor, data_inicio_domingo.strftime("%Y-%m"))
+            qtd_agendada = ocupacao_setor_mes.get(chave_mes, 0)
+            is_férias_coletivas = data_inicio_domingo.month in [12, 1]
+            ocupacao_setor_mes[chave_mes] = qtd_agendada + 1
+
+            data_aviso_rh = data_inicio_domingo - timedelta(days=30)
+
+            with c_status:
+                if data_inicio_domingo > limite_conc:
+                    st.error("🚨 Ultrapassa Limite Legal!")
+                elif qtd_agendada >= 2 and not is_férias_coletivas:
+                    st.warning(f"⚠️ Cota Excedida ({qtd_agendada + 1}º no mês)")
+                else:
+                    st.success(f"✅ Domingo: **{data_inicio_domingo.strftime('%d/%m/%Y')}**")
+
+                st.caption(f"Aviso RH até: **{data_aviso_rh.strftime('%d/%m/%Y')}**")
+
+            c_frac, c_aprov, c_conf = st.columns([1.5, 1.5, 1])
+
+            with c_frac:
+                frac_atual = r.get('fracionamento') if pd.notnull(r.get('fracionamento')) else '30 Dias Corridos'
+                opcoes_frac = ['30 Dias Corridos', '15 + 15 Dias', '20 + 10 Dias']
+                idx_f = opcoes_frac.index(frac_atual) if frac_atual in opcoes_frac else 0
+                novo_frac = st.selectbox("Fracionamento", opcoes_frac, index=idx_f, key=f"frac_{idx}")
+                if novo_frac != frac_atual:
+                    colaboradores.at[idx, 'fracionamento'] = novo_frac
+                    alterou = True
+
+            with c_aprov:
+                aprov_atual = r.get('aprovacao_rh') if pd.notnull(r.get('aprovacao_rh')) else 'Pendente'
+                opcoes_aprov = ['Pendente', 'Pré-Agendado RH', 'Aprovado RH', 'Em Análise', 'Rejeitado']
+                idx_a = opcoes_aprov.index(aprov_atual) if aprov_atual in opcoes_aprov else 0
+                nova_aprov = st.selectbox("Status RH", opcoes_aprov, index=idx_a, key=f"aprov_{idx}")
+                if nova_aprov != aprov_atual:
+                    colaboradores.at[idx, 'aprovacao_rh'] = nova_aprov
+                    alterou = True
+
+            with c_conf:
+                conf_atual = bool(r.get('escala_confirmada')) if pd.notnull(r.get('escala_confirmada')) else False
+                nova_conf = st.checkbox("Confirmar?", value=conf_atual, key=f"conf_{idx}")
+                if nova_conf != conf_atual:
+                    colaboradores.at[idx, 'escala_confirmada'] = nova_conf
+                    alterou = True
+
+            st.divider()
+
+            cota_txt = f"Vaga {qtd_agendada + 1}/2 no Setor" if not is_férias_coletivas else "Férias Coletivas (Sem Cota)"
+
+            dados_escala.append({
+                "Prio": f"#{ordem_prio}",
+                "Matrícula": r.get('matricula', 'N/A'),
+                "Funcionário": r['funcionario'],
+                "Setor": setor,
+                "Cargo": r.get('cargo', 'N/A'),
+                "Admissão": dt_adm_str,
+                "Últimas Férias": dt_ult_str,
+                "Início Férias (Domingo)": data_inicio_domingo.strftime('%d/%m/%Y'),
+                "Prazo Aviso RH": data_aviso_rh.strftime('%d/%m/%Y'),
+                "Limite Concessivo": limite_conc.strftime('%d/%m/%Y'),
+                "Status Cota Setor": cota_txt,
+                "Fracionamento": colaboradores.at[idx, 'fracionamento'],
+                "Status RH": colaboradores.at[idx, 'aprovacao_rh'],
+                "Confirmado": "SIM" if colaboradores.at[idx, 'escala_confirmada'] else "NÃO"
+            })
+
+    if alterou:
+        salvar_entidade("colaboradores", colaboradores, mostrar_feedback=False)
+        st.success("✅ Pré-agendamentos e alterações salvos com sucesso!")
+        st.rerun()
+
+    df_escala_final = pd.DataFrame(dados_escala)
+
+    with tab_resumo:
+        st.markdown("##### 📋 Visão Consolidada da Escala de Férias Reorganizada")
+        st.dataframe(df_escala_final, use_container_width=True, hide_index=True)
+
+    with tab_export:
+        st.markdown("##### 📥 Exportar Relatório com Datas Pré-Agendadas")
+        c_down1, c_down2 = st.columns(2)
+        
+        with c_down1:
+            st.download_button(
+                label="📥 Baixar Escala em Excel (.xlsx)",
+                data=converter_df_para_excel(df_escala_final),
+                file_name=f"escala_inteligente_ferias_{hoje.strftime('%d_%m_%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_excel_pre"
+            )
+            
+        with c_down2:
+            pdf_bytes_out = gerar_pdf_ferias(
+                "Relatório - Escala Inteligente de Férias e Pré-Agendamento RH",
+                df_escala_final
+            )
+            st.download_button(
+                label="🖨️ Baixar PDF para Impressão",
+                data=pdf_bytes_out,
+                file_name=f"escala_inteligente_ferias_{hoje.strftime('%d_%m_%Y')}.pdf",
+                mime="application/pdf",
+                key="btn_pdf_pre"
+            )
 
 
 def tela_indicadores(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str) -> None:
     st.subheader("Indicadores de frequência e absenteísmo")
     c1, c2 = st.columns(2)
-    inicio = c1.date_input("Início do período", value=date.today().replace(day=1))
-    fim = c2.date_input("Fim do período", value=date.today())
+    inicio = c1.date_input("Início do período", value=date.today().replace(day=1), format="DD/MM/YYYY")
+    fim = c2.date_input("Fim do período", value=date.today(), format="DD/MM/YYYY")
     if fim < inicio:
         st.error("O fim do período precisa ser igual ou posterior ao início.")
         return
@@ -848,9 +1085,9 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
             setor = c3.text_input("Setor").strip()
             cargo = c4.text_input("Cargo").strip()
             c5, c6, c7, c8 = st.columns(4)
-            admissao = c5.date_input("Admissão", value=date.today())
-            nascimento = c6.date_input("Nascimento", value=date(1990, 1, 1))
-            ultimas_ferias = c7.date_input("Últimas Férias (opcional)", value=None)
+            admissao = c5.date_input("Admissão", value=date.today(), format="DD/MM/YYYY")
+            nascimento = c6.date_input("Nascimento", value=date(1990, 1, 1), format="DD/MM/YYYY")
+            ultimas_ferias = c7.date_input("Últimas Férias (opcional)", value=None, format="DD/MM/YYYY")
             status = c8.selectbox("Status", STATUS_COLABORADOR)
             
             if st.form_submit_button("Cadastrar"):
@@ -887,15 +1124,15 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
             cargo = c4.text_input("Cargo", value=pessoa["cargo"]).strip()
             
             c5, c6, c7 = st.columns(3)
-            admissao = c5.date_input("Admissão", value=para_data(pessoa["admissao"]) or date.today())
+            admissao = c5.date_input("Admissão", value=para_data(pessoa["admissao"]) or date.today(), format="DD/MM/YYYY")
             ultimas_ferias_atual = para_data(pessoa["ultimas_ferias"])
-            ult_ferias = c6.date_input("Últimas Férias", value=ultimas_ferias_atual if ultimas_ferias_atual else None)
+            ult_ferias = c6.date_input("Últimas Férias", value=ultimas_ferias_atual if ultimas_ferias_atual else None, format="DD/MM/YYYY")
             
             status_atual = pessoa["status"] if pessoa["status"] in STATUS_COLABORADOR else "Ativo"
             status = c7.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(status_atual))
             
             dt_deslig = para_data(pessoa["data_desligamento"]) or date.today()
-            data_desligamento = st.date_input("Data do desligamento", value=dt_deslig)
+            data_desligamento = st.date_input("Data do desligamento", value=dt_deslig, format="DD/MM/YYYY")
             
             if st.form_submit_button("Atualizar"):
                 nova_matricula = limpar_matricula(nova_matricula)
@@ -1119,23 +1356,20 @@ def main() -> None:
         
         aniversariantes = filtrar_setor(colaboradores, setor).copy()
         if not aniversariantes.empty and "nascimento" in aniversariantes.columns:
-            aniversariantes["dt_nasc"] = aniversariantes["nascimento"].map(para_data)
-            aniversariantes = aniversariantes[aniversariantes["dt_nasc"].notna() & (aniversariantes["dt_nasc"].map(lambda d: d.month) == mes_escolhido)].copy()
-            
-            if not aniversariantes.empty:
-                aniversariantes["dia"] = aniversariantes["dt_nasc"].map(lambda d: d.day)
-                aniversariantes = aniversariantes.sort_values("dia")
-                
-                tabela_aniv = []
-                for _, r in aniversariantes.iterrows():
-                    dt = para_data(r["nascimento"])
+            tabela_aniv = []
+            for _, r in aniversariantes.iterrows():
+                dt = para_data(r.get("nascimento"))
+                if dt and dt.month == mes_escolhido:
                     tabela_aniv.append({
+                        "dia_ordem": dt.day,
                         "Dia": f"{dt.day:02d}/{dt.month:02d}",
                         "Funcionário": r["funcionario"],
                         "Setor": r["setor"],
                         "Cargo": r["cargo"]
                     })
-                st.dataframe(pd.DataFrame(tabela_aniv), use_container_width=True, hide_index=True)
+            if tabela_aniv:
+                df_aniv = pd.DataFrame(tabela_aniv).sort_values("dia_ordem").drop(columns=["dia_ordem"])
+                st.dataframe(df_aniv, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhum aniversariante neste mês para o setor selecionado.")
         else:
