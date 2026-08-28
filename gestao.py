@@ -74,7 +74,14 @@ CHAVES_PRIMARIAS = {
     "historico": "evento_id",
 }
 
-TIPOS_OCORRENCIA = ("Falta Injustificada", "Atestado Médico", "Folga Concedida", "Ausência / A Confirmar")
+TIPOS_OCORRENCIA = (
+    "Falta Injustificada", 
+    "Atestado Médico", 
+    "Folga Concedida", 
+    "Advertência Escrita", 
+    "Suspensão", 
+    "Ausência / A Confirmar"
+)
 STATUS_COLABORADOR = ("Ativo", "Férias", "Afastado", "Desligado")
 TODOS_MODULOS = (
     "Dashboard & Alertas",
@@ -617,11 +624,11 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
         else:
             with st.form("form_ocorrencia", clear_on_submit=True):
                 matricula = st.selectbox("Colaborador", opcoes, format_func=lambda valor: mapa[valor])
-                tipo = st.selectbox("Tipo", TIPOS_OCORRENCIA)
+                tipo = st.selectbox("Tipo de Ocorrência", TIPOS_OCORRENCIA)
                 data_ocorrencia = st.date_input("Data", value=date.today(), key="data_ocorrencia", format="DD/MM/YYYY")
                 dias = st.number_input("Quantidade de dias", min_value=1, max_value=365, value=1)
                 cid = st.text_input("CID (opcional)").strip().upper()
-                motivo = st.text_area("Observação", max_chars=500).strip()
+                motivo = st.text_area("Observação / Descrição", max_chars=500).strip()
                 if st.form_submit_button("Salvar ocorrência"):
                     pessoa = base[base["matricula"] == matricula].iloc[0]
                     novo = {
@@ -630,7 +637,8 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
                         "cid": cid, "motivo": motivo, "origem": "Avulso",
                     }
                     if salvar_entidade("faltas", pd.concat([faltas, pd.DataFrame([novo])], ignore_index=True)):
-                        registrar_historico(matricula, pessoa["funcionario"], "Ocorrência", f"{tipo} em {data_ocorrencia:%d/%m/%Y}.", autor)
+                        registrar_historico(matricula, pessoa["funcionario"], f"Registro: {tipo}", f"{motivo or tipo} em {data_ocorrencia:%d/%m/%Y}.", autor)
+                        st.success(f"'{tipo}' registrada e salva no histórico do colaborador com sucesso!")
                         st.rerun()
 
     with aba_historico:
@@ -1075,7 +1083,7 @@ def tela_indicadores(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: s
     base_faltas = filtrar_setor(faltas, setor).copy()
     base_faltas["data_dt"] = pd.to_datetime(base_faltas["data"], errors="coerce")
     periodo = base_faltas[(base_faltas["data_dt"] >= pd.Timestamp(inicio)) & (base_faltas["data_dt"] <= pd.Timestamp(fim))]
-    ausencias = periodo[periodo["tipo"] != "Folga Concedida"]
+    ausencias = periodo[~periodo["tipo"].isin(["Folga Concedida"])]
     dias_ausentes = int(ausencias["dias"].sum()) if not ausencias.empty else 0
     quadro_medio = len(filtrar_setor(colaboradores, setor).query("status == 'Ativo'"))
     dias_calendario = (fim - inicio).days + 1
@@ -1285,7 +1293,6 @@ def tela_assistente_ia(colaboradores: pd.DataFrame, faltas: pd.DataFrame, epis: 
         resposta_texto = ""
         hoje = date.today()
         
-        # 1. Análise de Cota de Férias e Meses Específicos (ex: Outubro)
         if any(m in texto_lower for m in ["outubro", "novembro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "dezembro", "janeiro", "posso liberar", "cota", "vagas"]):
             meses_map = {
                 "janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3, "abril": 4,
@@ -1331,7 +1338,6 @@ def tela_assistente_ia(colaboradores: pd.DataFrame, faltas: pd.DataFrame, epis: 
             else:
                 resposta_texto = "Não há dados de colaboradores cadastrados para cruzar com a escala."
 
-        # 2. Análise de Férias Atuais (quem já está em férias)
         elif "quem está em férias" in texto_lower or "quem esta em ferias" in texto_lower or "em férias" in texto_lower or "em ferias" in texto_lower:
             if not colaboradores.empty:
                 em_ferias = colaboradores[colaboradores["status"] == "Férias"]
@@ -1345,21 +1351,23 @@ def tela_assistente_ia(colaboradores: pd.DataFrame, faltas: pd.DataFrame, epis: 
             else:
                 resposta_texto = "Sem dados de colaboradores."
 
-        # 3. Análise de Faltas e Ocorrências
-        elif "falta" in texto_lower or "faltas" in texto_lower or "atestado" in texto_lower or "ausên" in texto_lower:
+        elif "falta" in texto_lower or "faltas" in texto_lower or "atestado" in texto_lower or "ausên" in texto_lower or "advertência" in texto_lower or "suspensão" in texto_lower:
             if not faltas.empty:
-                total_faltas = len(faltas[faltas["tipo"] != "Folga Concedida"])
+                total_faltas = len(faltas[~faltas["tipo"].isin(["Folga Concedida"])])
                 atestados = len(faltas[faltas["tipo"] == "Atestado Médico"])
                 injustificadas = len(faltas[faltas["tipo"] == "Falta Injustificada"])
+                advertencias = len(faltas[faltas["tipo"] == "Advertência Escrita"])
+                suspensoes = len(faltas[faltas["tipo"] == "Suspensão"])
                 
-                resposta_texto = f"📋 **Relatório de Ocorrências e Faltas:**\n"
+                resposta_texto = f"📋 **Relatório de Ocorrências e Disciplinar:**\n"
                 resposta_texto += f"- Total de registros: **{total_faltas}**\n"
                 resposta_texto += f"- Atestados médicos: **{atestados}**\n"
                 resposta_texto += f"- Faltas injustificadas: **{injustificadas}**\n"
+                resposta_texto += f"- Advertências escritas: **{advertencias}**\n"
+                resposta_texto += f"- Suspensões: **{suspensoes}**\n"
             else:
-                resposta_texto = "Nenhuma falta registrada."
+                resposta_texto = "Nenhuma ocorrência registrada."
 
-        # 4. Panorama Geral da Equipe
         elif "equipe" in texto_lower or "colaboradores" in texto_lower or "entraram" in texto_lower or "ativos" in texto_lower:
             if not colaboradores.empty:
                 total = len(colaboradores)
@@ -1368,7 +1376,6 @@ def tela_assistente_ia(colaboradores: pd.DataFrame, faltas: pd.DataFrame, epis: 
             else:
                 resposta_texto = "Base vazia."
 
-        # 5. Fallback Inteligente / IA Externa
         else:
             if chave:
                 try:
@@ -1382,8 +1389,7 @@ def tela_assistente_ia(colaboradores: pd.DataFrame, faltas: pd.DataFrame, epis: 
             else:
                 resposta_texto = (
                     f"💡 **Assistente de Gestão & DP:** Analisei sua solicitação (*'{pergunta}'*). "
-                    "Posso cruzar dados de faltas, verificar quem está em férias, checar a escala inteligente de folgas/férias "
-                    "ou o status de contrato de experiência dos colaboradores. Tente perguntar sobre 'faltas', 'férias' ou 'equipe'."
+                    "Posso cruzar dados de faltas, advertências, suspensões, férias ou escala inteligente."
                 )
 
         with st.chat_message("assistant"):
