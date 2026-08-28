@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — Versão Completa Consolidada.
+"""Painel de Gestão & DP — Versão Definitiva Consolidada.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -6,6 +6,7 @@ Execute com: streamlit run gestao_corrigido.py
 from __future__ import annotations
 
 import io
+import locale
 import os
 import re
 import shutil
@@ -18,6 +19,14 @@ from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
+
+try:
+    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
+except Exception:
+    try:
+        locale.setlocale(locale.LC_ALL, 'Portuguese_Brazil.1252')
+    except Exception:
+        pass
 
 try:
     from supabase import Client, create_client
@@ -74,7 +83,7 @@ TODOS_MODULOS = (
     "Solicitação & Entrega de EPI",
     "Ficha Individual do Colaborador",
     "Controle de Experiência (45/90 dias)",
-    "Escala Inteligente de Férias",
+    "Escala Inteligente de Férias & Folga",
     "Colaboradores em Férias",
     "Indicadores de Frequência & Absenteísmo",
     "Aniversariantes do Mês",
@@ -538,7 +547,7 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
         else:
             anteriores = faltas[(faltas["data"].map(para_data) == data_chamada) & (faltas["origem"] == "Chamada")]
             anteriores = filtrar_setor(anteriores, setor)
-            estados: dict[str, str] = {linha["matricula"]: "Presente" for _, linha in operacionais.iterrows()}
+            estados: dict[str, str] = {linha["matricula"]: "" for _, linha in operacionais.iterrows()}
             for _, ocorrencia in anteriores.iterrows():
                 estados[ocorrencia["matricula"]] = "Folga" if ocorrencia["tipo"] == "Folga Concedida" else "Ausente"
 
@@ -548,11 +557,12 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
                     col_nome, col_status = st.columns([2.2, 1.35])
                     col_nome.markdown(f"**{pessoa['funcionario']}**  \n`{pessoa['matricula']}`")
                     
-                    estado_atual = estados.get(pessoa["matricula"], "Presente")
-                    idx_opcao = ("Presente", "Folga", "Ausente").index(estado_atual) if estado_atual in ("Presente", "Folga", "Ausente") else 0
+                    estado_atual = estados.get(pessoa["matricula"], "")
+                    opcoes_radio = ("", "Presente", "Folga", "Ausente")
+                    idx_opcao = opcoes_radio.index(estado_atual) if estado_atual in opcoes_radio else 0
                     
                     novo_estado[pessoa["matricula"]] = col_status.radio(
-                        "Status", ("Presente", "Folga", "Ausente"),
+                        "Status", opcoes_radio,
                         index=idx_opcao,
                         horizontal=True, label_visibility="collapsed",
                         key=f"chamada_{data_chamada.isoformat()}_{setor}_{pessoa['matricula']}",
@@ -567,7 +577,7 @@ def tela_chamada(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str, 
                 novos: list[dict[str, Any]] = []
                 for _, pessoa in operacionais.iterrows():
                     escolha = novo_estado[pessoa["matricula"]]
-                    if escolha != "Presente":
+                    if escolha and escolha != "Presente":
                         novos.append({
                             "registro_id": str(uuid.uuid4()), "matricula": pessoa["matricula"], "funcionario": pessoa["funcionario"],
                             "setor": pessoa["setor"], "data": data_chamada.isoformat(),
@@ -701,7 +711,6 @@ def tela_experiencia(colaboradores: pd.DataFrame, setor: str, autor: str) -> Non
     hoje = date.today()
     base = filtrar_setor(colaboradores, setor)
     
-    # Filtrar apenas colaboradores em período de experiência (ativos e sem decisão definitiva de efetivação)
     pendentes = []
     for _, pessoa in base.iterrows():
         if pessoa["status"] != "Ativo":
@@ -711,7 +720,6 @@ def tela_experiencia(colaboradores: pd.DataFrame, setor: str, autor: str) -> Non
             continue
         _, dias45, dias90 = classificar_experiencia(admissao, hoje)
         decisao = limpar_texto(pessoa["decisao_experiencia"])
-        # Mostrar quem está dentro do período (até 90 dias e não efetivado)
         if dias90 is not None and dias90 >= -10 and decisao.lower() != "efetivado":
             pendentes.append(pessoa)
 
@@ -734,8 +742,11 @@ def tela_experiencia(colaboradores: pd.DataFrame, setor: str, autor: str) -> Non
             
             with col_acoes:
                 with st.form(f"form_contrato_{pessoa['matricula']}"):
-                    decisao_atual = pessoa["decisao_experiencia"] if pessoa["decisao_experiencia"] in ("", "Em avaliação", "Efetivado", "Não efetivado") else ""
-                    nova_decisao = st.selectbox("Contrato de Trabalho", ("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato"), index=("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato").index(decisao_atual) if decisao_atual in ("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato") else 0)
+                    decisao_atual = pessoa["decisao_experiencia"] if pessoa["decisao_experiencia"] in ("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato") else ""
+                    opcoes_contrato = ("", "Em avaliação", "Efetivado", "Desligado por quebra de contrato")
+                    idx_contrato = opcoes_contrato.index(decisao_atual) if decisao_atual in opcoes_contrato else 0
+                    
+                    nova_decisao = st.selectbox("Contrato de Trabalho", opcoes_contrato, index=idx_contrato, format_func=lambda x: "Selecione uma opção" if x == "" else x)
                     aviso_rh = st.checkbox("✅ Enviar aviso formal de fechamento de contrato ao RH")
                     
                     if st.form_submit_button("Salvar Decisão Contratual"):
@@ -753,7 +764,7 @@ def tela_experiencia(colaboradores: pd.DataFrame, setor: str, autor: str) -> Non
 
 
 def tela_ferias_escala(colaboradores: pd.DataFrame, autor: str) -> None:
-    st.subheader("Escala Inteligente de Férias")
+    st.subheader("Escala Inteligente de Férias & Folga")
     aba_lancamento, aba_escala = st.tabs(["Lançamento de Férias", "Visão Geral & Vencimentos"])
     opcoes, mapa = opcoes_colaboradores(colaboradores, apenas_ativos=True)
 
@@ -781,7 +792,6 @@ def tela_ferias_escala(colaboradores: pd.DataFrame, autor: str) -> None:
     with aba_escala:
         ativos_ferias = colaboradores[colaboradores["status"].isin(["Ativo", "Férias"])].copy()
         linhas = []
-        hoje = date.today()
         for _, p in ativos_ferias.iterrows():
             adm = para_data(p["admissao"])
             ult = para_data(p["ultimas_ferias"])
@@ -943,6 +953,7 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
             
             with st.form("form_edicao_usuario"):
                 st.markdown(f"**Editando usuário:** `{selecionado}`")
+                novo_login = st.text_input("Nome de usuário (Login)", value=selecionado).strip().lower()
                 nova_senha = st.text_input("Nova senha (deixe em branco para não alterar)", type="password")
                 novo_perfil = st.selectbox("Perfil", ("Admin", "Gestor"), index=("Admin", "Gestor").index(perfil_atual))
                 
@@ -951,12 +962,19 @@ def tela_usuarios(usuarios: pd.DataFrame) -> None:
                 excluir = c2.form_submit_button("Excluir usuário")
                 
                 if salvar_edicao:
-                    if nova_senha.strip():
-                        usuarios.loc[indice, "senha"] = nova_senha.strip()
-                    usuarios.loc[indice, "perfil"] = novo_perfil
-                    salvar_entidade("usuarios", usuarios)
-                    st.success("Usuário atualizado com sucesso!")
-                    st.rerun()
+                    duplicado = (usuarios["usuario"] == novo_login) & (usuarios.index != indice)
+                    if not novo_login:
+                        st.error("O login não pode ficar em branco.")
+                    elif duplicado.any():
+                        st.error("Já existe outro usuário com este login.")
+                    else:
+                        usuarios.loc[indice, "usuario"] = novo_login
+                        if nova_senha.strip():
+                            usuarios.loc[indice, "senha"] = nova_senha.strip()
+                        usuarios.loc[indice, "perfil"] = novo_perfil
+                        salvar_entidade("usuarios", usuarios)
+                        st.success("Usuário atualizado com sucesso!")
+                        st.rerun()
                         
                 if excluir:
                     if len(usuarios) <= 1:
@@ -1082,7 +1100,7 @@ def main() -> None:
         tela_ficha(colaboradores, historico)
     elif menu == "Controle de Experiência (45/90 dias)":
         tela_experiencia(colaboradores, setor, nome)
-    elif menu == "Escala Inteligente de Férias":
+    elif menu == "Escala Inteligente de Férias & Folga":
         tela_ferias_escala(colaboradores, nome)
     elif menu == "Colaboradores em Férias":
         ferias = filtrar_setor(colaboradores[colaboradores["status"] == "Férias"], setor)
@@ -1092,10 +1110,34 @@ def main() -> None:
         tela_indicadores(colaboradores, faltas, setor)
     elif menu == "Aniversariantes do Mês":
         st.subheader("Aniversariantes do mês")
-        mes = st.selectbox("Mês", range(1, 13), index=date.today().month - 1, format_func=lambda numero: date(2000, numero, 1).strftime("%B").capitalize())
+        meses_nomes = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio", 6: "Junho",
+            7: "Julho", 8: "Agosto", 9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+        }
+        mes_atual = date.today().month
+        mes_escolhido = st.selectbox("Mês", range(1, 13), index=mes_atual - 1, format_func=lambda numero: meses_nomes[numero])
+        
         aniversariantes = filtrar_setor(colaboradores, setor)
-        aniversariantes = aniversariantes[aniversariantes["nascimento"].map(lambda valor: (para_data(valor) or date(1900, 1, 1)).month == mes)]
-        st.dataframe(tabela_exibicao(aniversariantes, ["nascimento", "funcionario", "setor", "cargo"]), use_container_width=True, hide_index=True)
+        aniversariantes["dt_nasc"] = aniversariantes["nascimento"].map(para_data)
+        aniversariantes = aniversariantes[aniversariantes["dt_nasc"].notna() & (aniversariantes["dt_nasc"].map(lambda d: d.month) == mes_escolhido)].copy()
+        
+        if not aniversariantes.empty:
+            aniversariantes["dia"] = aniversariantes["dt_nasc"].map(lambda d: d.day)
+            aniversariantes = aniversariantes.sort_values("dia")
+            
+            tabela_aniv = []
+            for _, r in aniversariantes.iterrows():
+                dt = para_data(r["nascimento"])
+                tabela_aniv.append({
+                    "Dia": f"{dt.day:02d}/{dt.month:02d}",
+                    "Funcionário": r["funcionario"],
+                    "Setor": r["setor"],
+                    "Cargo": r["cargo"]
+                })
+            st.dataframe(pd.DataFrame(tabela_aniv), use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum aniversariante neste mês para o setor selecionado.")
+            
     elif menu == "Cadastrar / Editar Colaborador":
         tela_colaboradores(colaboradores, nome)
     elif menu == "Criar / Gerenciar Usuários":
