@@ -1253,33 +1253,40 @@ def tela_importacao(colaboradores: pd.DataFrame) -> None:
 def tela_assistente_ia() -> None:
     st.subheader("Assistente IA para DP e Gestão")
     chave = segredo("GEMINI_API_KEY")
-    if not chave:
-        st.info("Assistente desativado. Configure GEMINI_API_KEY em secrets.toml.")
-        return
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=chave)
-        modelo = genai.GenerativeModel("gemini-1.5-pro")
-    except Exception as erro:
-        st.error(f"Erro ao iniciar assistente: {erro}")
-        return
+    
     historico = st.session_state.setdefault("historico_ia", [])
     for mensagem in historico:
         with st.chat_message(mensagem["role"]):
             st.markdown(mensagem["content"])
+            
     pergunta = st.chat_input("Digite uma pergunta sobre DP e gestão")
     if pergunta:
         historico.append({"role": "user", "content": pergunta})
         with st.chat_message("user"):
             st.markdown(pergunta)
-        try:
-            resposta = modelo.generate_content("Responda em português, de forma objetiva: " + pergunta)
-            texto = getattr(resposta, "text", "Sem resposta.")
+            
+        if not chave:
+            resposta_simulada = (
+                f"Olá! Recebi sua dúvida sobre DP/Gestão: *'{pergunta}'*. "
+                "No momento, a API Key do Gemini não está configurada nos segredos (secrets.toml), "
+                "portanto estou operando em modo de suporte local. Verifique as regras de rescisão, "
+                "férias e abono pecuniário conforme a CLT para este caso."
+            )
             with st.chat_message("assistant"):
-                st.markdown(texto)
-            historico.append({"role": "assistant", "content": texto})
-        except Exception as erro:
-            st.error(f"Erro: {erro}")
+                st.markdown(resposta_simulada)
+            historico.append({"role": "assistant", "content": resposta_simulada})
+        else:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=chave)
+                modelo = genai.GenerativeModel("gemini-1.5-pro")
+                resposta = modelo.generate_content("Responda em português, de forma objetiva: " + pergunta)
+                texto = getattr(resposta, "text", "Sem resposta.")
+                with st.chat_message("assistant"):
+                    st.markdown(texto)
+                historico.append({"role": "assistant", "content": texto})
+            except Exception as erro:
+                st.error(f"Erro ao conectar com a IA: {erro}")
 
 
 def aplicar_estilo() -> None:
