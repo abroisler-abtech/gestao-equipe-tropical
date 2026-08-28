@@ -1,4 +1,4 @@
-"""Painel de Gestão & DP — Versão Definitiva Consolidada.
+"""Painel de Gestão & DP — Versão Definitiva Corrigida.
 
 Execute com: streamlit run gestao_corrigido.py
 """
@@ -1117,26 +1117,29 @@ def main() -> None:
         mes_atual = date.today().month
         mes_escolhido = st.selectbox("Mês", range(1, 13), index=mes_atual - 1, format_func=lambda numero: meses_nomes[numero])
         
-        aniversariantes = filtrar_setor(colaboradores, setor)
-        aniversariantes["dt_nasc"] = aniversariantes["nascimento"].map(para_data)
-        aniversariantes = aniversariantes[aniversariantes["dt_nasc"].notna() & (aniversariantes["dt_nasc"].map(lambda d: d.month) == mes_escolhido)].copy()
-        
-        if not aniversariantes.empty:
-            aniversariantes["dia"] = aniversariantes["dt_nasc"].map(lambda d: d.day)
-            aniversariantes = aniversariantes.sort_values("dia")
+        aniversariantes = filtrar_setor(colaboradores, setor).copy()
+        if not aniversariantes.empty and "nascimento" in aniversariantes.columns:
+            aniversariantes["dt_nasc"] = aniversariantes["nascimento"].map(para_data)
+            aniversariantes = aniversariantes[aniversariantes["dt_nasc"].notna() & (aniversariantes["dt_nasc"].map(lambda d: d.month) == mes_escolhido)].copy()
             
-            tabela_aniv = []
-            for _, r in aniversariantes.iterrows():
-                dt = para_data(r["nascimento"])
-                tabela_aniv.append({
-                    "Dia": f"{dt.day:02d}/{dt.month:02d}",
-                    "Funcionário": r["funcionario"],
-                    "Setor": r["setor"],
-                    "Cargo": r["cargo"]
-                })
-            st.dataframe(pd.DataFrame(tabela_aniv), use_container_width=True, hide_index=True)
+            if not aniversariantes.empty:
+                aniversariantes["dia"] = aniversariantes["dt_nasc"].map(lambda d: d.day)
+                aniversariantes = aniversariantes.sort_values("dia")
+                
+                tabela_aniv = []
+                for _, r in aniversariantes.iterrows():
+                    dt = para_data(r["nascimento"])
+                    tabela_aniv.append({
+                        "Dia": f"{dt.day:02d}/{dt.month:02d}",
+                        "Funcionário": r["funcionario"],
+                        "Setor": r["setor"],
+                        "Cargo": r["cargo"]
+                    })
+                st.dataframe(pd.DataFrame(tabela_aniv), use_container_width=True, hide_index=True)
+            else:
+                st.info("Nenhum aniversariante neste mês para o setor selecionado.")
         else:
-            st.info("Nenhum aniversariante neste mês para o setor selecionado.")
+            st.info("Nenhum registro de colaboradores encontrado.")
             
     elif menu == "Cadastrar / Editar Colaborador":
         tela_colaboradores(colaboradores, nome)
