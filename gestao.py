@@ -526,6 +526,22 @@ def tela_dashboard(colaboradores: pd.DataFrame, faltas: pd.DataFrame, setor: str
             </div>
         """, unsafe_allow_html=True)
 
+    # --- CARDS DE TOTAL POR SETOR ---
+    st.markdown("### Total por Setor")
+    if not colaboradores.empty and "setor" in colaboradores.columns:
+        contagem_setores = base[base["setor"] != ""].groupby("setor").size().reset_index(name="total")
+        if not contagem_setores.empty:
+            setor_cols = st.columns(min(len(contagem_setores), 4))
+            for i, (_, row) in enumerate(contagem_setores.iterrows()):
+                col_atual = setor_cols[i % len(setor_cols)]
+                col_atual.markdown(f"""
+                    <div style="background-color: #1A1D24; border: 2px solid #3B82F6; border-radius: 12px; padding: 12px; text-align: center; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                        <div style="font-size: 13px; font-weight: 600; color: #F8FAFC; margin-bottom: 4px;">{row['setor']}</div>
+                        <div style="font-size: 24px; font-weight: 800; color: #3B82F6;">{row['total']}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+    # --------------------------------
+
     st.markdown("---")
     st.subheader("🚨 Alertas & Liberação de Vagas (Desligamentos)")
     
@@ -1269,81 +1285,97 @@ def tela_assistente_ia(colaboradores: pd.DataFrame, faltas: pd.DataFrame, epis: 
         resposta_texto = ""
         hoje = date.today()
         
-        # 1. Análise de Faltas e Ocorrências
-        if "falta" in texto_lower or "faltas" in texto_lower or "atestado" in texto_lower or "ausên" in texto_lower:
+        # 1. Análise de Cota de Férias e Meses Específicos (ex: Outubro)
+        if any(m in texto_lower for m in ["outubro", "novembro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "dezembro", "janeiro", "posso liberar", "cota", "vagas"]):
+            meses_map = {
+                "janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3, "abril": 4,
+                "maio": 5, "junho": 6, "julho": 7, "agosto": 8, "setembro": 9,
+                "outubro": 10, "novembro": 11, "dezembro": 12
+            }
+            mes_alvo = None
+            for nome_m, num_m in meses_map.items():
+                if nome_m in texto_lower:
+                    mes_alvo = num_m
+                    break
+            
+            if not colaboradores.empty:
+                ativos = colaboradores[colaboradores["status"].isin(["Ativo", "Férias"])].copy()
+                setores_disponiveis = ativos["setor"].dropna().unique()
+                
+                resposta_texto = f"📊 **Análise de Cota e Vagas para Férias**"
+                if mes_alvo:
+                    nome_mes_txt = [k for k, v in meses_map.items() if v == mes_alvo][0].capitalize()
+                    resposta_texto += f" **(Mês de referência: {nome_mes_txt})**:\n\n"
+                    
+                    is_coletiva = mes_alvo in [12, 1]
+                    if is_coletiva:
+                        resposta_texto += "ℹ️ *Atenção:* Dezembro e Janeiro são meses de Férias Coletivas livres (sem limite estrito de cota por setor).\n\n"
+                    else:
+                        resposta_texto += "ℹ️ *Regra:* Limite padrão de **2 colaboradores por mês por setor**.\n\n"
+
+                    ocupacao_setor = {s: [] for s in setores_disponiveis}
+                    for _, r in ativos.iterrows():
+                        dt_pre = para_data(r.get("data_pre_agendada"))
+                        if dt_pre and dt_pre.month == mes_alvo:
+                            s_colab = r.get("setor", "Geral")
+                            if s_colab in ocupacao_setor:
+                                ocupacao_setor[s_colab].append(r['funcionario'])
+
+                    for setor_item, alocados in ocupacao_setor.items():
+                        vagas_restantes = "Ilimitadas" if is_coletiva else max(0, 2 - len(alocados))
+                        resposta_texto += f"- **Setor {setor_item}:** {len(alocados)} agendado(s) | Vagas restantes: **{vagas_restantes}**\n"
+                        if alocados:
+                            resposta_texto += f"  * Já escalados: {', '.join(alocados)}\n"
+                else:
+                    resposta_texto += "Informe o mês desejado (ex: 'quantos posso liberar em outubro?') para calcularmos as vagas por setor com base na Escala Inteligente.\n"
+            else:
+                resposta_texto = "Não há dados de colaboradores cadastrados para cruzar com a escala."
+
+        # 2. Análise de Férias Atuais (quem já está em férias)
+        elif "quem está em férias" in texto_lower or "quem esta em ferias" in texto_lower or "em férias" in texto_lower or "em ferias" in texto_lower:
+            if not colaboradores.empty:
+                em_ferias = colaboradores[colaboradores["status"] == "Férias"]
+                resposta_texto = f"🏖️ **Colaboradores Atualmente em Férias:**\n"
+                if not em_ferias.empty:
+                    for _, r in em_ferias.iterrows():
+                        ret = formatar_data(r.get("data_retorno_ferias"))
+                        resposta_texto += f"- *{r['funcionario']}* ({r['setor']}) — Retorno previsto: **{ret}**\n"
+                else:
+                    resposta_texto += "Nenhum colaborador com status de férias ativado no momento."
+            else:
+                resposta_texto = "Sem dados de colaboradores."
+
+        # 3. Análise de Faltas e Ocorrências
+        elif "falta" in texto_lower or "faltas" in texto_lower or "atestado" in texto_lower or "ausên" in texto_lower:
             if not faltas.empty:
                 total_faltas = len(faltas[faltas["tipo"] != "Folga Concedida"])
                 atestados = len(faltas[faltas["tipo"] == "Atestado Médico"])
                 injustificadas = len(faltas[faltas["tipo"] == "Falta Injustificada"])
                 
                 resposta_texto = f"📋 **Relatório de Ocorrências e Faltas:**\n"
-                resposta_texto += f"- Total de registros de ausência/ocorrência: **{total_faltas}**\n"
-                resposta_texto += f"- Atestados médicos registrados: **{atestados}**\n"
-                resposta_texto += f"- Faltas injustificadas: **{injustificadas}**\n\n"
-                
-                ultimas = faltas.sort_values("data", ascending=False).head(5)
-                resposta_texto += "**Últimos registros:**\n"
-                for _, r in ultimas.iterrows():
-                    dt_f = formatar_data(r.get("data"))
-                    resposta_texto += f"- {r['funcionario']} ({r['setor']}) em {dt_f}: {r['tipo']} ({r['dias']} dia(s))\n"
+                resposta_texto += f"- Total de registros: **{total_faltas}**\n"
+                resposta_texto += f"- Atestados médicos: **{atestados}**\n"
+                resposta_texto += f"- Faltas injustificadas: **{injustificadas}**\n"
             else:
-                resposta_texto = "Nenhuma falta ou ocorrência registrada no sistema."
+                resposta_texto = "Nenhuma falta registrada."
 
-        # 2. Análise de Férias e Escala Inteligente
-        elif "férias" in texto_lower or "ferias" in texto_lower or "escala" in texto_lower:
-            if not colaboradores.empty:
-                em_ferias = colaboradores[colaboradores["status"] == "Férias"]
-                resposta_texto = f"🏖️ **Situação de Férias na Empresa:**\n"
-                resposta_texto += f"- Colaboradores atualmente em férias: **{len(em_ferias)}**\n"
-                
-                if not em_ferias.empty:
-                    for _, r in em_ferias.iterrows():
-                        ret = formatar_data(r.get("data_retorno_ferias"))
-                        resposta_texto += f"  - *{r['funcionario']}* ({r['setor']}) — Retorno previsto: **{ret}**\n"
-                
-                pre_agendados = colaboradores[colaboradores["data_pre_agendada"].notna() & (colaboradores["data_pre_agendada"] != "")]
-                resposta_texto += f"\n📅 Colaboradores com pré-agendamento de férias estruturado: **{len(pre_agendados)}**\n"
-                for _, r in pre_agendados.iterrows():
-                    dt_pre = formatar_data(r.get("data_pre_agendada"))
-                    aprov = r.get("aprovacao_rh", "Pendente")
-                    resposta_texto += f"  - *{r['funcionario']}* ({r['setor']}) — Início em Domingo: **{dt_pre}** | Status RH: **{aprov}**\n"
-            else:
-                resposta_texto = "Sem dados de colaboradores para análise de férias."
-
-        # 3. Panorama Geral da Equipe e Admissões Recentes
+        # 4. Panorama Geral da Equipe
         elif "equipe" in texto_lower or "colaboradores" in texto_lower or "entraram" in texto_lower or "ativos" in texto_lower:
             if not colaboradores.empty:
                 total = len(colaboradores)
                 ativos = len(colaboradores[colaboradores["status"] == "Ativo"])
-                afastados = len(colaboradores[colaboradores["status"] == "Afastado"])
-                
-                resposta_texto = f"👥 **Panorama Geral do Quadro:**\n"
-                resposta_texto += f"- Total de cadastros: **{total}**\n"
-                resposta_texto += f"- Colaboradores Ativos: **{ativos}**\n"
-                resposta_texto += f"- Afastados / INSS: **{afastados}**\n"
-                
-                recentes = []
-                for _, r in colaboradores.iterrows():
-                    adm = para_data(r.get("admissao"))
-                    if adm and (hoje - adm).days <= 60:
-                        recentes.append(f"{r['funcionario']} ({r['setor']}) em {formatar_data(adm)}")
-                
-                if recentes:
-                    resposta_texto += "\n**Admitidos recentemente (últimos 60 dias):**\n"
-                    for rec in recentes:
-                        resposta_texto += f"- {rec}\n"
+                resposta_texto = f"👥 **Quadro Geral:** {total} cadastrados ({ativos} ativos)."
             else:
-                resposta_texto = "A base de colaboradores está vazia."
+                resposta_texto = "Base vazia."
 
-        # 4. Consulta Geral via IA Externa ou Suporte Integrado
+        # 5. Fallback Inteligente / IA Externa
         else:
             if chave:
                 try:
                     import google.generativeai as genai
                     genai.configure(api_key=chave)
                     modelo = genai.GenerativeModel("gemini-1.5-pro")
-                    resumo_base = f"Resumo da empresa: {len(colaboradores)} colaboradores, setores operacionais ativos, controle de faltas e escala inteligente de férias."
-                    resp_ai = modelo.generate_content(f"Contexto: {resumo_base}. Responda em português, de forma objetiva sobre DP, gestão e CLT: " + pergunta)
+                    resp_ai = modelo.generate_content("Responda em português, de forma objetiva sobre DP e CLT: " + pergunta)
                     resposta_texto = getattr(resp_ai, "text", "Sem resposta.")
                 except Exception as e:
                     resposta_texto = f"Erro ao consultar a IA: {e}"
