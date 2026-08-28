@@ -1250,43 +1250,113 @@ def tela_importacao(colaboradores: pd.DataFrame) -> None:
             st.rerun()
 
 
-def tela_assistente_ia() -> None:
+def tela_assistente_ia(colaboradores: pd.DataFrame, faltas: pd.DataFrame, epis: pd.DataFrame, historico: pd.DataFrame) -> None:
     st.subheader("Assistente IA para DP e Gestão")
     chave = segredo("GEMINI_API_KEY")
     
-    historico = st.session_state.setdefault("historico_ia", [])
-    for mensagem in historico:
+    historico_chat = st.session_state.setdefault("historico_ia", [])
+    for mensagem in historico_chat:
         with st.chat_message(mensagem["role"]):
             st.markdown(mensagem["content"])
             
-    pergunta = st.chat_input("Digite uma pergunta sobre DP e gestão")
+    pergunta = st.chat_input("Pergunte sobre faltas, férias, escala ou dados da equipe")
     if pergunta:
-        historico.append({"role": "user", "content": pergunta})
+        historico_chat.append({"role": "user", "content": pergunta})
         with st.chat_message("user"):
             st.markdown(pergunta)
             
-        if not chave:
-            resposta_simulada = (
-                f"Olá! Recebi sua dúvida sobre DP/Gestão: *'{pergunta}'*. "
-                "No momento, a API Key do Gemini não está configurada nos segredos (secrets.toml), "
-                "portanto estou operando em modo de suporte local. Verifique as regras de rescisão, "
-                "férias e abono pecuniário conforme a CLT para este caso."
-            )
-            with st.chat_message("assistant"):
-                st.markdown(resposta_simulada)
-            historico.append({"role": "assistant", "content": resposta_simulada})
+        texto_lower = pergunta.lower()
+        resposta_texto = ""
+        hoje = date.today()
+        
+        # 1. Análise de Faltas e Ocorrências
+        if "falta" in texto_lower or "faltas" in texto_lower or "atestado" in texto_lower or "ausên" in texto_lower:
+            if not faltas.empty:
+                total_faltas = len(faltas[faltas["tipo"] != "Folga Concedida"])
+                atestados = len(faltas[faltas["tipo"] == "Atestado Médico"])
+                injustificadas = len(faltas[faltas["tipo"] == "Falta Injustificada"])
+                
+                resposta_texto = f"📋 **Relatório de Ocorrências e Faltas:**\n"
+                resposta_texto += f"- Total de registros de ausência/ocorrência: **{total_faltas}**\n"
+                resposta_texto += f"- Atestados médicos registrados: **{atestados}**\n"
+                resposta_texto += f"- Faltas injustificadas: **{injustificadas}**\n\n"
+                
+                ultimas = faltas.sort_values("data", ascending=False).head(5)
+                resposta_texto += "**Últimos registros:**\n"
+                for _, r in ultimas.iterrows():
+                    dt_f = formatar_data(r.get("data"))
+                    resposta_texto += f"- {r['funcionario']} ({r['setor']}) em {dt_f}: {r['tipo']} ({r['dias']} dia(s))\n"
+            else:
+                resposta_texto = "Nenhuma falta ou ocorrência registrada no sistema."
+
+        # 2. Análise de Férias e Escala Inteligente
+        elif "férias" in texto_lower or "ferias" in texto_lower or "escala" in texto_lower:
+            if not colaboradores.empty:
+                em_ferias = colaboradores[colaboradores["status"] == "Férias"]
+                resposta_texto = f"🏖️ **Situação de Férias na Empresa:**\n"
+                resposta_texto += f"- Colaboradores atualmente em férias: **{len(em_ferias)}**\n"
+                
+                if not em_ferias.empty:
+                    for _, r in em_ferias.iterrows():
+                        ret = formatar_data(r.get("data_retorno_ferias"))
+                        resposta_texto += f"  - *{r['funcionario']}* ({r['setor']}) — Retorno previsto: **{ret}**\n"
+                
+                pre_agendados = colaboradores[colaboradores["data_pre_agendada"].notna() & (colaboradores["data_pre_agendada"] != "")]
+                resposta_texto += f"\n📅 Colaboradores com pré-agendamento de férias estruturado: **{len(pre_agendados)}**\n"
+                for _, r in pre_agendados.iterrows():
+                    dt_pre = formatar_data(r.get("data_pre_agendada"))
+                    aprov = r.get("aprovacao_rh", "Pendente")
+                    resposta_texto += f"  - *{r['funcionario']}* ({r['setor']}) — Início em Domingo: **{dt_pre}** | Status RH: **{aprov}**\n"
+            else:
+                resposta_texto = "Sem dados de colaboradores para análise de férias."
+
+        # 3. Panorama Geral da Equipe e Admissões Recentes
+        elif "equipe" in texto_lower or "colaboradores" in texto_lower or "entraram" in texto_lower or "ativos" in texto_lower:
+            if not colaboradores.empty:
+                total = len(colaboradores)
+                ativos = len(colaboradores[colaboradores["status"] == "Ativo"])
+                afastados = len(colaboradores[colaboradores["status"] == "Afastado"])
+                
+                resposta_texto = f"👥 **Panorama Geral do Quadro:**\n"
+                resposta_texto += f"- Total de cadastros: **{total}**\n"
+                resposta_texto += f"- Colaboradores Ativos: **{ativos}**\n"
+                resposta_texto += f"- Afastados / INSS: **{afastados}**\n"
+                
+                recentes = []
+                for _, r in colaboradores.iterrows():
+                    adm = para_data(r.get("admissao"))
+                    if adm and (hoje - adm).days <= 60:
+                        recentes.append(f"{r['funcionario']} ({r['setor']}) em {formatar_data(adm)}")
+                
+                if recentes:
+                    resposta_texto += "\n**Admitidos recentemente (últimos 60 dias):**\n"
+                    for rec in recentes:
+                        resposta_texto += f"- {rec}\n"
+            else:
+                resposta_texto = "A base de colaboradores está vazia."
+
+        # 4. Consulta Geral via IA Externa ou Suporte Integrado
         else:
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=chave)
-                modelo = genai.GenerativeModel("gemini-1.5-pro")
-                resposta = modelo.generate_content("Responda em português, de forma objetiva: " + pergunta)
-                texto = getattr(resposta, "text", "Sem resposta.")
-                with st.chat_message("assistant"):
-                    st.markdown(texto)
-                historico.append({"role": "assistant", "content": texto})
-            except Exception as erro:
-                st.error(f"Erro ao conectar com a IA: {erro}")
+            if chave:
+                try:
+                    import google.generativeai as genai
+                    genai.configure(api_key=chave)
+                    modelo = genai.GenerativeModel("gemini-1.5-pro")
+                    resumo_base = f"Resumo da empresa: {len(colaboradores)} colaboradores, setores operacionais ativos, controle de faltas e escala inteligente de férias."
+                    resp_ai = modelo.generate_content(f"Contexto: {resumo_base}. Responda em português, de forma objetiva sobre DP, gestão e CLT: " + pergunta)
+                    resposta_texto = getattr(resp_ai, "text", "Sem resposta.")
+                except Exception as e:
+                    resposta_texto = f"Erro ao consultar a IA: {e}"
+            else:
+                resposta_texto = (
+                    f"💡 **Assistente de Gestão & DP:** Analisei sua solicitação (*'{pergunta}'*). "
+                    "Posso cruzar dados de faltas, verificar quem está em férias, checar a escala inteligente de folgas/férias "
+                    "ou o status de contrato de experiência dos colaboradores. Tente perguntar sobre 'faltas', 'férias' ou 'equipe'."
+                )
+
+        with st.chat_message("assistant"):
+            st.markdown(resposta_texto)
+        historico_chat.append({"role": "assistant", "content": resposta_texto})
 
 
 def aplicar_estilo() -> None:
@@ -1335,7 +1405,7 @@ def main() -> None:
     if menu == "Dashboard & Alertas":
         tela_dashboard(colaboradores, faltas, setor)
     elif menu == "Assistente IA (DP & Gestão)":
-        tela_assistente_ia()
+        tela_assistente_ia(colaboradores, faltas, epis, historico)
     elif menu == "Chamada & Faltas do Dia":
         tela_chamada(colaboradores, faltas, setor, nome)
     elif menu == "Solicitação & Entrega de EPI":
