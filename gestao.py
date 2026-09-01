@@ -267,7 +267,7 @@ def salvar_excel_atomico(df: pd.DataFrame, entidade: str) -> None:
 
 
 def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
-    if entidade in {"usuarios", "colaboradores"}:
+    if entidade == "usuarios":
         df, _ = normalizar_entidade(ler_excel(entidade), entidade)
         return df, "Local"
 
@@ -288,7 +288,7 @@ def carregar_entidade(entidade: str) -> tuple[pd.DataFrame, str]:
 
 def salvar_entidade(entidade: str, df: pd.DataFrame, mostrar_feedback: bool = True) -> bool:
     df_normalizado, _ = normalizar_entidade(df, entidade)
-    if entidade not in {"usuarios", "colaboradores"}:
+    if entidade != "usuarios":
         cliente = obter_supabase()
         if cliente is not None:
             try:
@@ -341,7 +341,6 @@ def tela_login() -> bool:
         return True
 
     st.title("🔒 Acesso Restrito — Painel de Gestão & DP")
-    st.caption("Entre com usuário: admin / senha: 030711")
     usuarios, _ = carregar_entidade("usuarios")
     usuarios = provisionar_admin_automatico(usuarios)
 
