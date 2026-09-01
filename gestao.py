@@ -1153,13 +1153,16 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
             setor = c3.text_input("Setor", value=pessoa["setor"]).strip()
             cargo = c4.text_input("Cargo", value=pessoa["cargo"]).strip()
             
-            c5, c6, c7 = st.columns(3)
+            c5, c6, c7, c8 = st.columns(4)
             admissao = c5.date_input("Admissão", value=para_data(pessoa["admissao"]) or date.today(), format="DD/MM/YYYY")
+            nascimento_atual = para_data(pessoa["nascimento"])
+            nascimento = c6.date_input("Nascimento", value=nascimento_atual if nascimento_atual else date(1990, 1, 1), format="DD/MM/YYYY")
+            
             ultimas_ferias_atual = para_data(pessoa["ultimas_ferias"])
-            ult_ferias = c6.date_input("Últimas Férias", value=ultimas_ferias_atual if ultimas_ferias_atual else None, format="DD/MM/YYYY")
+            ult_ferias = c7.date_input("Últimas Férias", value=ultimas_ferias_atual if ultimas_ferias_atual else None, format="DD/MM/YYYY")
             
             status_atual = pessoa["status"] if pessoa["status"] in STATUS_COLABORADOR else "Ativo"
-            status = c7.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(status_atual))
+            status = c8.selectbox("Status", STATUS_COLABORADOR, index=STATUS_COLABORADOR.index(status_atual))
             
             dt_deslig = para_data(pessoa["data_desligamento"]) or date.today()
             data_desligamento = st.date_input("Data do desligamento", value=dt_deslig, format="DD/MM/YYYY")
@@ -1172,14 +1175,16 @@ def tela_colaboradores(colaboradores: pd.DataFrame, autor: str) -> None:
                 elif duplicada.any():
                     st.error("A matrícula informada já pertence a outro colaborador.")
                 else:
-                    colaboradores.loc[indice, ["matricula", "funcionario", "setor", "cargo", "admissao", "ultimas_ferias", "status", "data_desligamento"]] = [
+                    colaboradores.loc[indice, ["matricula", "funcionario", "setor", "cargo", "admissao", "nascimento", "ultimas_ferias", "status", "data_desligamento"]] = [
                         nova_matricula, nome, setor, cargo, admissao.isoformat(),
+                        nascimento.isoformat() if nascimento else "",
                         ult_ferias.isoformat() if ult_ferias else "", status,
                         data_desligamento.isoformat() if status == "Desligado" else "",
                     ]
                     if salvar_entidade("colaboradores", colaboradores):
                         evento = "Desligamento" if status == "Desligado" else "Atualização cadastral"
                         registrar_historico(nova_matricula, nome, evento, f"Status atualizado para {status}.", autor)
+                        st.success("Atualizado com sucesso!")
                         st.rerun()
 
 
