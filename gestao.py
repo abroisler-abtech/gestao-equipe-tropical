@@ -157,11 +157,24 @@ def para_data(valor: object) -> Optional[date]:
         return valor.date()
     if isinstance(valor, date):
         return valor
-    convertido = pd.to_datetime(str(valor), dayfirst=True, errors="coerce")
-    if pd.isna(convertido):
-        convertido = pd.to_datetime(str(valor), dayfirst=False, errors="coerce")
-    return None if pd.isna(convertido) else convertido.date()
+    
+    texto = str(valor).strip()
+    
+    # Se já estiver no formato ISO YYYY-MM-DD
+    if re.match(r"^\d{4}-\d{2}-\d{2}", texto):
+        try:
+            return datetime.strptime(texto[:10], "%Y-%m-%d").date()
+        except ValueError:
+            pass
 
+    # Força primeiro o padrão dia/mês/ano brasileiro
+    convertido = pd.to_datetime(texto, format="%d/%m/%Y", errors="coerce")
+    if pd.isna(convertido):
+        convertido = pd.to_datetime(texto, dayfirst=True, errors="coerce")
+    if pd.isna(convertido):
+        convertido = pd.to_datetime(texto, dayfirst=False, errors="coerce")
+        
+    return None if pd.isna(convertido) else convertido.date()
 
 def data_iso(valor: object) -> Optional[str]:
     convertido = para_data(valor)
